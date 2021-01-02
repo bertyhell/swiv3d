@@ -16,7 +16,10 @@ public class HelicopterMovement : MonoBehaviour
 
     private AudioSource bladesAudio = null;
     private float baseVolume = 0.7f;
-    private float rotationY = 0;
+
+    private float pitch = 0;
+    private float yaw = 0;
+    private float spin = 0;
 
     void Start()
     {
@@ -57,11 +60,17 @@ public class HelicopterMovement : MonoBehaviour
             transform.position.z + moveVector.z
         );
 
-        rotationY += rotationSpeed * maxRotationSpeed * Time.deltaTime;
+        // Dip nose down when moving forward
+        pitch = transform.rotation.x + forwardSpeed * pitchResponse + Random.Range(0f, 2f) * Time.deltaTime;
+        // Rotate nose left/right when mouse moves
+        yaw += rotationSpeed * maxRotationSpeed * Time.deltaTime;
+        // Rotate body left/right durinbg strafing and during rotation with mouse
+        spin = transform.rotation.z - strafeSpeed * rollResponse + Random.Range(0f, 2f) * Time.deltaTime;
+
         transform.rotation = Quaternion.Euler(
-            transform.rotation.x + forwardSpeed * pitchResponse + Random.Range(0f, 2f) * Time.deltaTime,
-            rotationY, 
-            transform.rotation.z - strafeSpeed * rollResponse + Random.Range(0f, 2f) * Time.deltaTime
+            pitch,
+            yaw,
+            spin
         );
 
         transform.Rotate(Vector3.up, rotationSpeed * maxRotationSpeed * Time.deltaTime);
