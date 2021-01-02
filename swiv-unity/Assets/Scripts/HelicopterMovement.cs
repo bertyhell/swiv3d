@@ -5,7 +5,7 @@ public class HelicopterMovement : MonoBehaviour
     
     [SerializeField] float maxForwardSpeed = 40.0f;
     [SerializeField] float maxStrafeSpeed = 40.0f;
-    [SerializeField] float maxRotationSpeed = 30.0f;
+    [SerializeField] float maxRotationSpeed = 3.0f;
     [SerializeField] float hoverHeight = 50.0f;
     [SerializeField] float accendSpeed = 5f;
     [SerializeField] float descendSpeed = 1f;
@@ -16,6 +16,7 @@ public class HelicopterMovement : MonoBehaviour
 
     private AudioSource bladesAudio = null;
     private float baseVolume = 0.7f;
+    private float rotationY = 0;
 
     void Start()
     {
@@ -45,17 +46,25 @@ public class HelicopterMovement : MonoBehaviour
             heightCorrection = heightDiff * accendSpeed;
         }
 
-        transform.localPosition = new Vector3(
-            transform.localPosition.x + strafeSpeed * maxStrafeSpeed * Time.deltaTime + Random.Range(0f,2f) * Time.deltaTime,
-            transform.localPosition.y + heightCorrection * Time.deltaTime,
-            transform.localPosition.z + forwardSpeed * maxForwardSpeed * Time.deltaTime + Random.Range(0f, 2f) * Time.deltaTime
+        float deltaX = strafeSpeed * maxStrafeSpeed * Time.deltaTime + Random.Range(0f, 2f) * Time.deltaTime;
+        float deltaZ = forwardSpeed * maxForwardSpeed * Time.deltaTime + Random.Range(0f, 2f) * Time.deltaTime;
+
+        Vector3 moveVector = transform.right * deltaX + transform.forward * deltaZ;
+
+        transform.position = new Vector3(
+            transform.position.x + moveVector.x,
+            transform.position.y + heightCorrection * Time.deltaTime,
+            transform.position.z + moveVector.z
         );
 
+        rotationY += rotationSpeed * maxRotationSpeed * Time.deltaTime;
         transform.rotation = Quaternion.Euler(
-            transform.localRotation.x + forwardSpeed * pitchResponse + Random.Range(0f, 2f) * Time.deltaTime, 
-            transform.localRotation.y + rotationSpeed * maxRotationSpeed * Time.deltaTime, 
-            transform.localRotation.z - strafeSpeed * rollResponse + Random.Range(0f, 2f) * Time.deltaTime
+            transform.rotation.x + forwardSpeed * pitchResponse + Random.Range(0f, 2f) * Time.deltaTime,
+            rotationY, 
+            transform.rotation.z - strafeSpeed * rollResponse + Random.Range(0f, 2f) * Time.deltaTime
         );
+
+        transform.Rotate(Vector3.up, rotationSpeed * maxRotationSpeed * Time.deltaTime);
 
         // Modify the sound so it gets loader when you move
         float speedFactor = Mathf.Max(Mathf.Abs(forwardSpeed), Mathf.Abs(strafeSpeed));
