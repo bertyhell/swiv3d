@@ -63,17 +63,17 @@ public class LoadTerrain : MonoBehaviour {
         float x = ((playerPos.x % terrainWidth) + terrainWidth) % terrainWidth;
         float z = ((playerPos.z % terrainLength) + terrainLength) % terrainLength;
 
-        if (x > terrainWidth * 0.75f) {
+        if (x > terrainWidth * (1f - margin)) {
             offsetX = 1;
-        } else if (x < terrainWidth * 0.25f) {
+        } else if (x < terrainWidth * margin) {
             offsetX = -1;
         } else {
             offsetX = 0;
         }
 
-        if (z > terrainLength * 0.75f) {
+        if (z > terrainLength * (1f - margin)) {
             offsetZ = 1;
-        } else if (z < terrainLength * 0.25f) {
+        } else if (z < terrainLength * margin) {
             offsetZ = -1;
         } else {
             offsetZ = 0;
