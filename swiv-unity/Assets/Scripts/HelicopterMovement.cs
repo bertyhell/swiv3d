@@ -3,9 +3,9 @@
 public class HelicopterMovement : MonoBehaviour
 {
     
-    [SerializeField] float maxForwardSpeed = 40.0f;
-    [SerializeField] float maxStrafeSpeed = 40.0f;
-    [SerializeField] float maxRotationSpeed = 3.0f;
+    [SerializeField] float maxForwardSpeed = 41.0f;
+    [SerializeField] float maxStrafeSpeed = 41.0f;
+    [SerializeField] float maxRotationSpeed = 41.0f;
     [SerializeField] float hoverHeight = 50.0f;
     [SerializeField] float accendSpeed = 5f;
     [SerializeField] float descendSpeed = 1f;
