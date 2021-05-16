@@ -2,10 +2,8 @@
 // Converted to C# because I fucking hate UnityScript and it's inexistant C# interoperability
 // If you have C# code and you want to edit SmoothFollow's vars ingame, use this instead.
 using UnityEngine;
-using System.Collections;
 
 public class CameraMovement : MonoBehaviour {
-
     // The target we are following
     [SerializeField] Transform target = null;
     [SerializeField] float rotationDamping = 3.0f;
@@ -16,7 +14,7 @@ public class CameraMovement : MonoBehaviour {
     // The distance in the x-z plane to the target => calculated at start
     float distance = 0f;
 
-    private void Start() {
+    void Awake() {
         distance = Mathf.Sqrt(Mathf.Pow(transform.position.x - target.position.x, 2) + Mathf.Pow(transform.position.z - target.position.z, 2));
         height = transform.position.y - target.position.y;
     }
