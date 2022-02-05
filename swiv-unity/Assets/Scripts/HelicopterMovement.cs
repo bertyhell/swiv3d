@@ -51,13 +51,13 @@ public class HelicopterMovement : MonoBehaviour {
     }
 
     void OnMove(Vector2 direction) {
-        Debug.Log("triggered move " + direction.ToString());
+        //Debug.Log("triggered move " + direction.ToString());
         forwardSpeed = direction[1];
         strafeSpeed = direction[0];
     }
 
     void OnRotate(Vector2 direction) {
-        Debug.Log("triggered rotate " + direction.ToString());
+        //Debug.Log("triggered rotate " + direction.ToString());
         rotationSpeed = direction[0];
     }
 
