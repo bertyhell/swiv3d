@@ -49,6 +49,40 @@ fn parse_riff(effect: u32, priority: u32, offset: usize, riff: &[u8]) -> Sound<'
     Sound { effect, priority, offset, riff, sample_rate: rate, channels: ch, bits, pcm }
 }
 
+/// Descriptive file name for an effect, e.g. `1000-explosion-1.wav`.
+pub fn file_name(effect: u32) -> String {
+    let desc = match effect {
+        1000 => "explosion-1",
+        1001 => "explosion-2",
+        1003 => "explosion-3",
+        2000 => "gun-fire-1",
+        2001 => "gun-fire-2",
+        2002 => "anti-air",
+        2003 => "anti-air-2",
+        2004 => "machine-gun-1",
+        2005 => "machine-gun-2",
+        3000 => "switch-guns-1",
+        3001 => "switch-guns-2",
+        3002 => "hit",
+        4000 => "pickup-ammo",
+        4001 => "mission-briefing-intro",
+        4002 => "mission-briefing-waypoint",
+        4010 => "button",
+        4011 => "damage",
+        4020 => "heli-explosion",
+        5000 => "rotor-blades",
+        5001 => "tracks",
+        5002 => "ether",
+        6000 => "rewind-1",
+        6001 => "rewind-2",
+        6002 => "menu-change-menu",
+        6003 => "menu-change-button",
+        6004 => "menu-change-setting",
+        _ => return format!("{effect}.wav"),
+    };
+    format!("{effect}-{desc}.wav")
+}
+
 /// All sound effects, in directory order.
 pub fn split(data: &[u8]) -> Vec<Sound<'_>> {
     let Ok(b) = Bundle::parse(data.to_vec()) else { return Vec::new() };

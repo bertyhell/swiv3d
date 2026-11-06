@@ -78,13 +78,14 @@ fn run(data: &Path, out: &Path, music: Option<PathBuf>) -> Res<()> {
     let keep: Vec<(u32, &[u8])> = global.entries.iter().filter(|e| e.id < 1000).map(|e| (e.id, global.get(e.id).unwrap())).collect();
     fs::write(out.join("global.bd"), Bundle::write(&keep))?;
 
-    // Sound effects as WAV files named by effect id.
+    // Sound effects as WAV files named `<effect id>-<description>.wav`.
     let snd = fs::read(data.join("SOUNDS.BD"))?;
     fs::create_dir_all(out.join("sounds"))?;
     let mut effects = Vec::new();
     for s in sounds::split(&snd) {
-        fs::write(out.join("sounds").join(format!("{}.wav", s.effect)), s.riff)?;
-        effects.push(s.effect.to_string());
+        let name = sounds::file_name(s.effect);
+        fs::write(out.join("sounds").join(&name), s.riff)?;
+        effects.push(format!("\"{name}\""));
     }
     let _ = writeln!(manifest, "  \"sounds\": [{}],", effects.join(", "));
 

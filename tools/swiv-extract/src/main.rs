@@ -34,7 +34,7 @@ fn run(data: &Path, out: &Path, anims: Option<PathBuf>, cue: Option<PathBuf>) ->
     let list = sounds::split(&snd);
     for (i, s) in list.iter().enumerate() {
         let _ = i;
-        fs::write(sdir.join(format!("{}.wav", s.effect)), s.riff)?;
+        fs::write(sdir.join(sounds::file_name(s.effect)), s.riff)?;
     }
     println!("sounds: {}", list.len());
 

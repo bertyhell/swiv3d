@@ -230,7 +230,7 @@ code, kbd { font-family: var(--mono); font-size: 0.92em; color: var(--accent); }
 .menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); }
 
 #briefing { position: fixed; inset: 0; background: #000; }
-#briefing-map { width: 100%; height: 100%; display: block; }
+#briefing-map, .briefing-cockpit { width: 100%; height: 100%; display: block; }
 #briefing-skip { position: absolute; bottom: 2vh; width: 100%; text-align: center; font: 600 12px var(--mono); color: rgba(255,255,255,0.5); }
 
 /* The intro cinematic. */
@@ -239,3 +239,4 @@ code, kbd { font-family: var(--mono); font-size: 0.92em; color: var(--accent); }
 #intro.fade { opacity: 0; }
 .intro-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
 .intro-skip { position: absolute; right: 16px; bottom: 12px; font: 600 12px var(--mono); color: rgba(255,255,255,0.35); }
+#briefing canvas { position: absolute; inset: 0; }

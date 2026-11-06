@@ -6,6 +6,9 @@
 //   SETUP: Controller Setup / Sound Volume / Music Volume / Music Preference / Detail Level
 // Pilots (name, campaign progress) and settings are kept in localStorage.
 
+import { createCockpit } from './briefing-cockpit.js';
+import { paintGlobe } from './globe.js';
+
 const $ = (id) => document.getElementById(id);
 
 // Heading colours of the original's screens.
@@ -323,6 +326,12 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
     const wrap = $('briefing');
     const c = $('briefing-map');
     wrap.hidden = false;
+    // The opening push into the cockpit is 3D, on its own canvas under the 2D one.
+    const view3d = document.createElement('canvas');
+    view3d.className = 'briefing-cockpit';
+    wrap.prepend(view3d);
+    let cockpit = createCockpit(view3d);
+    const dropCockpit = () => { cockpit?.dispose(); cockpit = null; view3d.remove(); };
     // Group objective targets: centroid per objective group.
     const start = { x: points[0], z: points[1] };
     const groups = new Map();
@@ -359,6 +368,7 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
     const end = () => {
       if (done) return;
       done = true;
+      dropCockpit();
       removeEventListener('keydown', key, true);
       wrap.removeEventListener('pointerdown', key);
       wrap.hidden = true;
@@ -376,7 +386,8 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
 
     // Close-up frames sit beside their marker, kept clear of each other and the globe.
     const FW = 132, FH = 110;
-    const placed = [{ x: 30, y: 20, w: 110, h: 90 }];
+    const placed = [{ x: 14, y: 8, w: 112, h: 112 }];
+    const globe = document.createElement('canvas');
     const overlap = (a, b) => a.x < b.x + b.w + 6 && b.x < a.x + a.w + 6 && a.y < b.y + b.h + 6 && b.y < a.y + a.h + 6;
     marks.forEach((m) => {
       const [x, y] = toScreen(m);
@@ -391,57 +402,6 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
       placed.push(m.box);
     });
 
-    function cockpit(g, t) {
-      // A dark instrument panel around the map monitor; the camera pushes in on the screen.
-      const k = easeInOut(span01(t, 0, 3.6));
-      const z = 1 + k * 3.4;
-      const fx = 300, fy = 160;
-      g.save();
-      g.translate(fx, fy);
-      g.scale(z, z);
-      g.translate(-fx, -fy);
-      const bg = g.createLinearGradient(0, 0, 0, 400);
-      bg.addColorStop(0, '#141a17'); bg.addColorStop(1, '#0b0f0d');
-      g.fillStyle = bg;
-      g.fillRect(-200, -200, 1040, 800);
-      // Upper-right auxiliary display, glowing pale green.
-      g.fillStyle = '#56624a';
-      g.beginPath(); g.roundRect(430, 20, 140, 110, 10); g.fill();
-      g.fillStyle = 'rgba(160,190,120,0.25)';
-      g.fillRect(440, 30, 120, 90);
-      // Side switch columns and round gauges.
-      const lamp = (x, y, w, h, col, glow = 8) => {
-        g.shadowColor = col; g.shadowBlur = glow; g.fillStyle = col; g.fillRect(x, y, w, h); g.shadowBlur = 0;
-      };
-      for (let i = 0; i < 6; i++) {
-        lamp(150, 120 + i * 30, 6, 10, i % 3 === 0 ? '#ff6020' : '#c03020', 4);
-        g.fillStyle = '#2a3330';
-        g.beginPath(); g.arc(250 + i * 50, 340, 16, 0, Math.PI * 2); g.fill();
-        g.strokeStyle = '#4a5550'; g.lineWidth = 2; g.stroke();
-      }
-      lamp(410, 190, 18, 14, '#ff4a50'); lamp(440, 190, 18, 14, '#ffd040');
-      lamp(410, 340, 22, 14, '#ff8a90'); lamp(440, 350, 18, 14, '#ffd040');
-      lamp(335, 300, 7, 7, '#30ff60'); lamp(190, 310, 7, 7, '#30ff60');
-      g.fillStyle = '#ff7a20';
-      for (const [x, y] of [[420, 250], [455, 265], [470, 300]]) {
-        g.beginPath(); g.moveTo(x, y); g.lineTo(x + 8, y); g.lineTo(x + 4, y + 12); g.fill();
-      }
-      // The map monitor: thick rounded bezel, dead black glass with a faint sheen.
-      g.fillStyle = '#3c4440';
-      g.beginPath(); g.roundRect(196, 66, 208, 188, 34); g.fill();
-      const bz = g.createLinearGradient(196, 66, 404, 254);
-      bz.addColorStop(0, '#8a948f'); bz.addColorStop(0.5, '#454d49'); bz.addColorStop(1, '#22282a');
-      g.strokeStyle = bz; g.lineWidth = 8; g.stroke();
-      g.fillStyle = '#020303';
-      g.beginPath(); g.roundRect(212, 82, 176, 156, 24); g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.035)';
-      g.beginPath(); g.ellipse(270, 110, 60, 22, -0.3, 0, Math.PI * 2); g.fill();
-      g.restore();
-      // Fade to black as the glass fills the frame.
-      g.fillStyle = `rgba(0,0,0,${span01(t, 2.6, 3.8)})`;
-      g.fillRect(0, 0, 640, 400);
-    }
-
     function draw(now) {
       if (done) return;
       const t = (now - t0) / 1000;
@@ -450,6 +410,21 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
       const W = Math.round(c.clientWidth * dpr), H = Math.round(c.clientHeight * dpr);
       if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
       const g = c.getContext('2d');
+      if (t < MAP_IN && cockpit) {
+        // The 3D cockpit shows through; darken its edges and fade it out as the glass fills the view.
+        cockpit.render(t);
+        g.clearRect(0, 0, W, H);
+        const v = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.55);
+        v.addColorStop(0, 'rgba(0,0,0,0)');
+        v.addColorStop(1, 'rgba(0,0,0,0.7)');
+        g.fillStyle = v;
+        g.fillRect(0, 0, W, H);
+        g.fillStyle = `rgba(0,0,0,${span01(t, 2.6, 3.8)})`;
+        g.fillRect(0, 0, W, H);
+        requestAnimationFrame(draw);
+        return;
+      }
+      if (cockpit) dropCockpit();
       g.fillStyle = '#000';
       g.fillRect(0, 0, W, H);
       // Work in a 640x400 frame, letterboxed, like the original screen.
@@ -460,7 +435,6 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
       g.beginPath(); g.rect(0, 0, 640, 400); g.clip();
 
       if (t < MAP_IN) {
-        cockpit(g, t);
         g.restore();
         requestAnimationFrame(draw);
         return;
@@ -559,33 +533,28 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
         g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
       });
 
-      // The map globe, top left: the whole terrain on a chrome-ringed lens.
+      // The Objective Guide, top left: the same globe as the in-game HUD.
       const ga = t - globeAt;
       if (ga > 0) {
-        const gx = 85, gy = 62, gr = 38;
+        const gx = 70, gy = 62, gr = 50;
         const gs = easeOut(span01(ga, 0, 0.4));
+        // The game's HUD globe, north up, centred on the start, its white pointer on the first objective.
+        const px = Math.max(1, Math.round(gr * 2 * s));
+        if (globe.width !== px) { globe.width = globe.height = px; }
+        const gg = globe.getContext('2d');
+        gg.clearRect(0, 0, px, px);
+        const goal = marks[1] ?? marks[0];
+        paintGlobe(gg, px, mapCanvas, start.x, start.z, -Math.PI, goal.x, goal.z, 64);
         g.save();
         g.translate(gx, gy);
         g.scale(gs, gs);
-        const ring = g.createLinearGradient(-gr, -gr, gr, gr);
-        ring.addColorStop(0, '#f0f0f0'); ring.addColorStop(0.5, '#7a7a7a'); ring.addColorStop(1, '#d0d0d0');
-        g.fillStyle = ring;
-        g.beginPath(); g.roundRect(-gr - 6, -gr - 2, (gr + 6) * 2, (gr + 2) * 2, 26); g.fill();
-        g.save();
-        g.beginPath(); g.roundRect(-gr + 2, -gr + 4, (gr - 2) * 2, (gr - 4) * 2, 18); g.clip();
-        g.drawImage(mapCanvas, -gr, -gr, gr * 2, gr * 2);
-        const lens = g.createRadialGradient(-10, -12, 4, 0, 0, gr * 1.2);
-        lens.addColorStop(0, 'rgba(255,255,255,0.25)'); lens.addColorStop(1, 'rgba(0,0,0,0.45)');
-        g.fillStyle = lens; g.fillRect(-gr, -gr, gr * 2, gr * 2);
+        g.drawImage(globe, -gr, -gr, gr * 2, gr * 2);
         g.restore();
-        g.fillStyle = '#222';
-        g.beginPath(); g.moveTo(-6, -gr + 2); g.lineTo(6, -gr + 2); g.lineTo(0, -gr - 6); g.fill();
-        g.restore();
-        flash(gx, gy, ga / 0.6, 60);
-        flash(gx, gy, (ga - 3.5) / 0.6, 60);
+        flash(gx, gy, ga / 0.6, 70);
+        flash(gx, gy, (ga - 3.5) / 0.6, 70);
         const la = span01(ga, 0.5, 0.9) * (1 - span01(t, outAt + 0.8, plungeAt));
-        outlined('North', gx + 52, gy - 22, 'left', '#fff', la);
-        outlined('Objective Guide', gx + 52, gy + 4, 'left', '#fff', span01(ga, 1.2, 1.6) * (1 - span01(t, outAt + 0.8, plungeAt)));
+        outlined('North', gx + gr + 8, gy - 22, 'left', '#fff', la);
+        outlined('Objective Guide', gx + gr + 8, gy + 4, 'left', '#fff', span01(ga, 1.2, 1.6) * (1 - span01(t, outAt + 0.8, plungeAt)));
       }
 
       g.font = 'italic 900 13px "Arial Black", Arial, sans-serif';

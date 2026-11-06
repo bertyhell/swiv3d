@@ -62,7 +62,7 @@ cargo run --release -p swiv-extract -- "<cd>/GameData" assets-out \
 ```
 
 Produces per level `height.png`, `colour.png`, `type.png`, `palette.png`, texture pages,
-every model as OBJ + MTL and `spawns.json`; plus `global/strings.json`, `sounds/<effect>.wav`,
+every model as OBJ + MTL and `spawns.json`; plus `global/strings.json`, `sounds/<effect>-<description>.wav`,
 `music/trackNN.ogg` and `video/*.webm`.
 
 ## Tests

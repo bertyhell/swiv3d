@@ -18,7 +18,7 @@ const clamp01 = (t) => Math.max(0, Math.min(1, t));
 const smooth = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
 const span = (t, a, b) => clamp01((t - a) / (b - a));
 
-function canvasTexture(w, h, draw, { repeat = null, srgb = true } = {}) {
+export function canvasTexture(w, h, draw, { repeat = null, srgb = true } = {}) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   draw(c.getContext('2d'), w, h);
@@ -43,7 +43,7 @@ function noiseTexture(w, h, base, spread, repeat) {
 
 // ------------------------------------------------------------------ models
 
-const metal = (c, rough = 0.55, met = 0.6) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: met });
+export const metal = (c, rough = 0.55, met = 0.6) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: met });
 
 /**
  * A lofted hull: superellipse cross-sections along z. Each section is
@@ -99,7 +99,7 @@ function plate(points, t = 0.08, bevel = 0.02) {
 }
 
 /** Panel lines and rivet grime over a base colour, for hull skins. */
-function panelTexture(base, { cols = 6, rows = 4, line = 'rgba(0,0,0,0.55)', repeat = [1, 1] } = {}) {
+export function panelTexture(base, { cols = 6, rows = 4, line = 'rgba(0,0,0,0.55)', repeat = [1, 1] } = {}) {
   return canvasTexture(256, 256, (g, w, h) => {
     g.fillStyle = base; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 900; i++) {
