@@ -1,6 +1,8 @@
 // SWIV 3D web front-end: file loading, menus, input, HUD and audio.
 // The simulation and WebGL rendering live in Rust (crates/swiv-web).
 import init, { Game, global_strings, sound_offsets } from './pkg/swiv_web.js';
+import { playIntro } from './intro.js';
+import { createFrontEnd, runBriefing, store, save, pilot } from './frontend.js';
 
 const LEVEL_ORDER = [
   'TERRAN00', 'TERRAN01', 'TERRAN02', 'TERRAN03', 'TERRAN04', 'TERRAN05', 'TERRAN06', 'TERRANBS',
@@ -33,9 +35,14 @@ const KEYMAP = {
 
 // Sound effect ids (SOUNDS.BD directory id / 100) per sim event code.
 // 11 = tractor beam grabs a pickup: its winch sound runs exactly as long as the lift.
-// 1 = the blue pulse gun (2000, a single falling zap). Hits (5) are silent: 2005 is a
-// machine-gun rattle, which belongs to enemy soldiers firing back (not in the game yet).
-const EVENT_SOUNDS = { 1: 2000, 2: 2004, 3: 1000, 4: 1001, 7: 4001, 8: 1003, 11: 4000 };
+// The primary gun (1) is not a sound per shot: recorded from the original in DOSBox, holding
+// fire gives a steady rattle, one sharp click every ~140 ms for as long as the trigger is
+// held (see `gunRattle`). The single falling zap (2000) is kept for the special weapons.
+const EVENT_SOUNDS = { 2: 2004, 3: 1000, 4: 1001, 7: 4001, 8: 1003, 11: 4000 };
+const GUN_CLICK = 2005;          // the rattle's click: its first 0.12 s
+const GUN_CLICK_MS = 140;
+// Level used as the menus' backdrop (the original flies over a level behind its menus).
+const MENU_LEVELS = ['TERRAN01', 'TERRAN00', 'TERRAN02'];
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -56,6 +63,10 @@ const state = {
   pickupNames: new Map(), // GLOBAL.BD strings group 100 (English): pickup index -> name
   assets: null,          // manifest of the swiv-pack layout in assets/, when it is there
   mapCanvas: null,
+  mode: 'loader',        // loader | splash | intro | menu | briefing | game
+  levels: [],            // campaign order of the available levels
+  frontEnd: null,
+  nextGun: 0,
 };
 
 // ---------------------------------------------------------------- files
@@ -149,13 +160,87 @@ async function afterFilesLoaded() {
     console.warn('strings', e);
   }
   await setupMusic();
-  const sel = $('level');
-  sel.innerHTML = '';
-  levels.forEach((l) => sel.add(new Option(l, l)));
-  sel.value = levels.includes('TERRAN01') ? 'TERRAN00' : levels[0];
+  state.levels = levels;
   $('loader').hidden = true;
-  $('menu').hidden = false;
-  $('start').focus();
+  showSplash();
+}
+
+// ---------------------------------------------------------------- front end
+
+// The browser needs a key press or click before it plays sound: the original's intro starts
+// from a black "press any key" screen here.
+function showSplash() {
+  state.mode = 'splash';
+  const splash = $('splash');
+  splash.hidden = false;
+  const go = async (e) => {
+    e?.preventDefault?.();
+    removeEventListener('keydown', go, true);
+    splash.removeEventListener('pointerdown', go);
+    splash.hidden = true;
+    await setupAudio();
+    await state.audio.resume();
+    applySettings();
+    if (new URLSearchParams(location.search).get('intro') !== '0') await runIntro();
+    await enterFrontEnd();
+  };
+  addEventListener('keydown', go, true);
+  splash.addEventListener('pointerdown', go);
+}
+
+async function runIntro() {
+  state.mode = 'intro';
+  playMusic(-1);
+  $('frontend').hidden = true;
+  await playIntro({ ctx: state.audio, sounds: state.sounds, master: state.sfxBus });
+}
+
+async function enterFrontEnd() {
+  state.running = false;
+  stopEngine();
+  $('hud').hidden = true;
+  $('pause').hidden = true;
+  const backdrop = MENU_LEVELS.find((l) => state.levels.includes(l)) ?? state.levels[0];
+  await loadLevel(backdrop);
+  state.game.set_attract(true);
+  state.game.set_view_distance(viewCells());
+  state.mode = 'menu';
+  state.running = true;
+  state.paused = false;
+  playMusic(state.music.tracks.length ? store.settings.track : -1);
+  state.frontEnd.open();
+}
+
+function viewCells() {
+  return 34 + store.settings.detail * 3.6; // 34..70 cells; the default (6) is the old 56
+}
+
+function applySettings() {
+  const s = store.settings;
+  if (state.sfxBus) state.sfxBus.gain.value = s.sfx / 10;
+  state.music.el.volume = Math.min(1, s.music / 10);
+  if (state.game) state.game.set_view_distance(viewCells());
+  if (state.mode === 'menu') {
+    const want = state.music.tracks.length ? s.track : -1;
+    if (want !== state.music.index || (want >= 0 && state.music.el.paused)) playMusic(want);
+  }
+}
+
+function uiClick() {
+  play(6002, { volume: 0.25, rate: 1.6 });
+}
+
+async function startGame(name) {
+  state.frontEnd.hide();
+  state.mode = 'briefing';
+  state.running = false;
+  state.carry = null;
+  await loadLevel(name);
+  state.game.set_attract(false);
+  state.game.set_view_distance(viewCells());
+  drawMinimapBase();
+  await runBriefing(state.mapCanvas, state.game.briefing(), 'Rookie');
+  beginPlay(name);
 }
 
 // ---------------------------------------------------------------- audio
@@ -168,6 +253,10 @@ async function setupAudio() {
   master.gain.value = 0.55;
   master.connect(ctx.destination);
   state.master = master;
+  // Effects go through their own bus so Setup's Sound Volume can scale them.
+  const sfx = ctx.createGain();
+  sfx.connect(master);
+  state.sfxBus = sfx;
   if (state.assets) {
     await Promise.all(state.assets.sounds.map(async (id) => {
       try {
@@ -191,7 +280,7 @@ async function setupAudio() {
   }
 }
 
-function play(id, { volume = 1, rate = 1 } = {}) {
+function play(id, { volume = 1, rate = 1, duration } = {}) {
   const buf = state.sounds.get(id);
   if (!buf || !state.audio) return;
   const src = state.audio.createBufferSource();
@@ -199,8 +288,28 @@ function play(id, { volume = 1, rate = 1 } = {}) {
   src.playbackRate.value = rate;
   const g = state.audio.createGain();
   g.gain.value = volume;
-  src.connect(g).connect(state.master);
-  src.start();
+  src.connect(g).connect(state.sfxBus);
+  if (duration) {
+    const end = state.audio.currentTime + duration;
+    g.gain.setValueAtTime(volume, end - 0.015);
+    g.gain.linearRampToValueAtTime(0, end);
+    src.start(0, 0, duration);
+  } else {
+    src.start();
+  }
+}
+
+// The primary gun's sound while the trigger is held: one click every GUN_CLICK_MS.
+function gunRattle(now, firing) {
+  if (!firing) {
+    state.nextGun = 0;
+    return;
+  }
+  if (now >= state.nextGun) {
+    play(GUN_CLICK, { volume: 0.55, duration: 0.12 });
+    state.nextGun = Math.max(now, state.nextGun) + GUN_CLICK_MS;
+    if (state.nextGun < now) state.nextGun = now + GUN_CLICK_MS;
+  }
 }
 
 function startEngine() {
@@ -212,7 +321,7 @@ function startEngine() {
   src.loop = true;
   const g = state.audio.createGain();
   g.gain.value = 0.35;
-  src.connect(g).connect(state.master);
+  src.connect(g).connect(state.sfxBus);
   src.start();
   state.engine = { src, g };
 }
@@ -255,13 +364,9 @@ async function setupMusic() {
     }
   }
   state.music.tracks = tracks;
-  const sel = $('music');
-  sel.innerHTML = '';
-  sel.add(new Option(tracks.length ? 'Off' : 'No CD audio found', '-1'));
-  tracks.forEach((t, i) => sel.add(new Option(`CD track ${t.n}`, String(i))));
-  sel.value = tracks.length ? '0' : '-1';
+  if (store.settings.track >= tracks.length) store.settings.track = tracks.length ? 0 : -1;
   state.music.el.loop = true;
-  state.music.el.volume = 0.7;
+  state.music.el.volume = Math.min(1, store.settings.music / 10);
 }
 
 function wavHeader(bytes) {
@@ -278,7 +383,7 @@ function playMusic(index) {
   const el = state.music.el;
   const t = state.music.tracks[index];
   state.music.index = index;
-  if (!t) {
+  if (!t || store.settings.music === 0) {
     el.pause();
     return;
   }
@@ -288,7 +393,7 @@ function playMusic(index) {
 
 // ---------------------------------------------------------------- game flow
 
-async function startLevel(name) {
+async function loadLevel(name) {
   if (state.assets) {
     const dir = `assets/levels/${name}`;
     const ids = state.assets.levels[name].textures;
@@ -301,15 +406,35 @@ async function startLevel(name) {
     const bytes = new Uint8Array(await state.files.get(`${name.toLowerCase()}.slv`).arrayBuffer());
     state.game.load_level(bytes);
   }
-  if (state.carry) state.game.carry_over(...state.carry);
   state.levelIndex = LEVEL_ORDER.indexOf(name);
+}
+
+function beginPlay(name) {
+  if (state.carry) state.game.carry_over(...state.carry);
+  state.mode = 'game';
   state.running = true;
   state.paused = false;
   state.banner = null;
+  state.keys = 0;
   drawMinimapBase();
   $('hud').hidden = false;
-  showBanner(name, 2500);
+  showBanner('Rookie', 2500);
   startEngine();
+  playMusic(state.music.tracks.length ? store.settings.track : -1);
+}
+
+// Next mission after one is complete: through its briefing, keeping score and weapons.
+async function nextMission(name) {
+  state.mode = 'briefing';
+  state.running = false;
+  stopEngine();
+  $('hud').hidden = true;
+  await loadLevel(name);
+  state.game.set_attract(false);
+  state.game.set_view_distance(viewCells());
+  drawMinimapBase();
+  await runBriefing(state.mapCanvas, state.game.briefing(), 'Rookie');
+  beginPlay(name);
 }
 
 function showBanner(text, ms) {
@@ -321,17 +446,14 @@ function showBanner(text, ms) {
 }
 
 function toMenu() {
-  state.running = false;
   state.carry = null;
-  stopEngine();
-  $('hud').hidden = true;
-  $('pause').hidden = true;
-  $('menu').hidden = false;
-  $('start').focus();
+  $('banner').hidden = true;
+  enterFrontEnd();
 }
 
 function setPaused(p) {
   state.paused = p;
+  state.keys = 0;
   $('pause').hidden = !p;
   if (p) $('resume').focus();
   if (state.engine) state.engine.g.gain.value = p ? 0 : 0.35;
@@ -339,7 +461,8 @@ function setPaused(p) {
 
 function handleEvents(events) {
   for (const e of events) {
-    if (EVENT_SOUNDS[e]) play(EVENT_SOUNDS[e], { volume: e === 1 ? 0.5 : e === 2 ? 0.35 : 0.8 });
+    if (EVENT_SOUNDS[e]) play(EVENT_SOUNDS[e], { volume: e === 2 ? 0.35 : 0.8 });
+    if (e === 1 && state.keys & K.SPECIAL) play(2000, { volume: 0.5 });
     if (e >= 1000) {
       state.game.fly_text(pickupName(e - 1000).trim());
     }
@@ -348,9 +471,15 @@ function handleEvents(events) {
       showBanner('MISSION COMPLETE', 0);
       const h = state.game.hud();
       state.carry = [h[0], h[1], h[5], state.game.ammo(), h[3]];
+      const next = state.levels.find((l) => LEVEL_ORDER.indexOf(l) > state.levelIndex);
+      const p = pilot();
+      if (p) {
+        p.level = Math.max(p.level ?? 0, next ? state.levels.indexOf(next) : state.levels.length - 1);
+        p.pick = p.level;
+        save();
+      }
       setTimeout(() => {
-        const next = LEVEL_ORDER.slice(state.levelIndex + 1).find((l) => state.files.has(`${l.toLowerCase()}.slv`));
-        if (next) startLevel(next);
+        if (next) nextMission(next);
         else { showBanner('ALL MISSIONS COMPLETE', 0); setTimeout(toMenu, 5000); }
       }, 4000);
     }
@@ -614,8 +743,24 @@ function gamepadBits() {
 }
 
 addEventListener('keydown', (e) => {
-  if (!state.running) return;
+  if (state.mode === 'menu') {
+    if (state.frontEnd.onKey(e)) e.preventDefault();
+    return;
+  }
+  if (state.mode !== 'game' || !state.running) return;
   if (e.code === 'Escape' || e.code === 'KeyP') { setPaused(!state.paused); e.preventDefault(); return; }
+  if (state.paused) {
+    const opts = [$('resume'), $('quit')];
+    const at = opts.indexOf(document.activeElement);
+    if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+      opts[(Math.max(0, at) + (e.code === 'ArrowUp' ? -1 : 1) + opts.length) % opts.length].focus();
+      e.preventDefault();
+    } else if (e.code === 'Enter' || e.code === 'Space') {
+      (opts[at] ?? opts[0]).click();
+      e.preventDefault();
+    }
+    return;
+  }
   if (e.code === 'KeyM') { state.showMap = !state.showMap; $('minimap').hidden = !state.showMap; return; }
   if (e.code === 'KeyN') {
     const n = state.music.tracks.length;
@@ -629,7 +774,7 @@ addEventListener('keyup', (e) => {
   const bit = KEYMAP[e.code];
   if (bit) state.keys &= ~bit;
 });
-addEventListener('blur', () => { state.keys = 0; if (state.running) setPaused(true); });
+addEventListener('blur', () => { state.keys = 0; if (state.mode === 'game' && state.running) setPaused(true); });
 
 // ---------------------------------------------------------------- main loop
 
@@ -637,9 +782,14 @@ let last = performance.now();
 function frame(now) {
   const dt = now - last;
   last = now;
-  if (state.game && state.running) {
+  if (state.game && state.running && state.mode === 'menu') {
+    state.game.update(dt, 0);
+    state.game.render();
+  } else if (state.game && state.running) {
     if (!state.paused) {
-      state.game.update(dt, state.keys | gamepadBits());
+      const bits = state.keys | gamepadBits();
+      state.game.update(dt, bits);
+      gunRattle(now, (bits & K.FIRE) !== 0 && state.game.hud()[9] === 0);
       const h = state.game.hud();
       handleEvents(state.game.take_events());
       if (now - state.lastHud > 80) { updateHud(h); state.lastHud = now; }
@@ -677,13 +827,21 @@ async function boot() {
     }
     await afterFilesLoaded();
   });
-  $('start').addEventListener('click', async () => {
-    $('menu').hidden = true;
-    await setupAudio();
-    await state.audio.resume();
-    playMusic(+$('music').value);
-    state.carry = null;
-    await startLevel($('level').value);
+  state.frontEnd = createFrontEnd({
+    setTitle: (text, [r, g, b]) => state.game.set_title(text, r, g, b),
+    get levels() { return state.levels; },
+    musicTracks: () => state.music.tracks.map((t) => `CD Track ${t.n}`),
+    applySettings,
+    startGame: (name) => startGame(name),
+    replayIntro: async () => {
+      state.frontEnd.hide();
+      state.mode = 'intro';
+      await runIntro();
+      state.mode = 'menu';
+      playMusic(state.music.tracks.length ? store.settings.track : -1);
+      state.frontEnd.openMain();
+    },
+    click: uiClick,
   });
   $('resume').addEventListener('click', () => setPaused(false));
   $('quit').addEventListener('click', toMenu);

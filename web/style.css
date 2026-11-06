@@ -167,3 +167,75 @@ code, kbd { font-family: var(--mono); font-size: 0.92em; color: var(--accent); }
   .panel { padding: 20px; }
   h1 { font-size: 34px; }
 }
+
+/* ------------------------------------------------------------ front end (original style) */
+
+:root {
+  --menu-font: 900 italic clamp(14px, 3.7vh, 34px)/1.12 "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  /* White lettering with a hard black outline, as on the original's menus. */
+  --menu-outline: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 2px 2px rgba(0,0,0,0.7);
+}
+
+#splash {
+  position: fixed; inset: 0; display: grid; place-content: center; text-align: center;
+  background: #000; cursor: pointer; user-select: none;
+}
+.splash-logo {
+  font: 900 italic clamp(48px, 14vw, 160px)/1 "Arial Black", Impact, sans-serif;
+  letter-spacing: -0.02em; transform: skewX(-8deg);
+  background: linear-gradient(#fff 0%, #c9d3e0 30%, #5b6878 48%, #1e2732 52%, #8c9cb0 70%, #e8eef6 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-text-stroke: 2px #9fb4cc;
+}
+.splash-logo span { font-size: 0.32em; -webkit-text-stroke: 1px #c8d2de; vertical-align: middle; }
+.blink { margin-top: 3vh; font: var(--menu-font); color: #fff; text-shadow: var(--menu-outline); animation: blink 1.1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+#frontend { position: fixed; inset: 0; pointer-events: none; }
+#menu-box, .menu-box {
+  position: absolute; left: 50%; top: 31vh; transform: translateX(-50%);
+  width: min(58vw, 92vh, 760px); min-width: min(320px, calc(100vw - 32px));
+  pointer-events: auto; user-select: none;
+  font: var(--menu-font); color: #fff; text-shadow: var(--menu-outline); text-align: center;
+}
+#menu-header, .menu-header {
+  padding: 0.12em 0.4em 0.18em;
+  background: linear-gradient(#c2c4c6, #9a9c9f 45%, #808285 55%, #8e9093);
+  border: 1px solid #e9ebee; border-bottom-color: #3a3c3f;
+  white-space: pre-line;
+}
+#menu-header:empty { display: none; }
+#menu-items, .menu-list {
+  list-style: none; margin: 0.18em 0 0; padding: 0.1em 0;
+  border-top: 1px solid rgba(255,255,255,0.85); border-bottom: 1px solid rgba(255,255,255,0.85);
+  background: rgba(0, 0, 0, 0.18);
+}
+#menu-items li, .menu-list li { margin: 0; }
+#menu-items li.rule { height: 0; margin: 0.12em 0; border-top: 1px solid rgba(255,255,255,0.85); }
+#menu-items li.text { padding: 0.02em 0.4em; font-size: 0.86em; }
+#menu-items li.empty { color: #ddd; letter-spacing: 0.3em; }
+#menu-items button, .menu-list button {
+  all: unset; box-sizing: border-box; display: block; width: 100%; padding: 0.02em 0.4em;
+  border: 1px solid transparent; cursor: pointer; font: inherit; color: inherit; text-shadow: inherit;
+}
+#menu-items button.sel, .menu-list button:focus, .menu-list button:hover {
+  background: linear-gradient(rgba(20,22,24,0.88), rgba(45,47,50,0.88)); border-color: #e3e5e8;
+}
+#menu-items .value { color: #ffd84a; }
+#menu-items .slider { display: inline-block; width: 7em; height: 0.18em; margin: 0 0.4em; vertical-align: middle;
+  background: #d8dadd; border: 1px solid #000; position: relative; }
+#menu-items .slider i { position: absolute; top: -0.32em; width: 0.32em; height: 0.8em; background: #e9ebee; border: 1px solid #000; transform: translateX(-50%); }
+#menu-help { position: absolute; bottom: 2vh; width: 100%; text-align: center; font: 600 12px var(--mono); color: rgba(255,255,255,0.55); }
+#menu-help kbd { margin: 0 2px; }
+.menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); }
+
+#briefing { position: fixed; inset: 0; background: #000; }
+#briefing-map { width: 100%; height: 100%; display: block; }
+#briefing-skip { position: absolute; bottom: 2vh; width: 100%; text-align: center; font: 600 12px var(--mono); color: rgba(255,255,255,0.5); }
+
+/* The intro cinematic. */
+#intro { position: fixed; inset: 0; background: #000; z-index: 50; transition: opacity 0.45s; }
+#intro canvas { width: 100%; height: 100%; display: block; }
+#intro.fade { opacity: 0; }
+.intro-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.intro-skip { position: absolute; right: 16px; bottom: 12px; font: 600 12px var(--mono); color: rgba(255,255,255,0.35); }

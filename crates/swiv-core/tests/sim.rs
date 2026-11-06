@@ -197,11 +197,11 @@ fn scenery_takes_the_hits_seen_in_the_footage() {
     let house = find(&w, &|e| e.class == 2000 && e.model == 500 && e.objective.is_none());
     assert_eq!(hits_to_wreck(&mut w, tree), 2);
     assert_eq!(hits_to_wreck(&mut w, pylon), 3);
-    assert_eq!(hits_to_wreck(&mut w, house), 6);
+    assert_eq!(hits_to_wreck(&mut w, house), 8);
 }
 
 #[test]
-fn gun_fires_one_two_pause_once_a_second() {
+fn gun_fires_one_two_pause() {
     let Some(l) = level("TERRAN01.SLV") else { return eprintln!("SWIV_DATA not set") };
     let mut w = World::new(&l);
     let mut shots = Vec::new();
@@ -212,7 +212,7 @@ fn gun_fires_one_two_pause_once_a_second() {
         }
     }
     let gaps: Vec<u64> = shots.windows(2).map(|p| p[1] - p[0]).collect();
-    assert_eq!(gaps[..5], [6, 24, 6, 24, 6], "shots at {shots:?}");
+    assert_eq!(gaps[..5], [7, 17, 7, 17, 7], "shots at {shots:?}");
 }
 
 #[test]

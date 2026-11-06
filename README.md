@@ -17,6 +17,8 @@ reference for feel; the original binaries are the source of truth.
 | `crates/swiv-web` | wasm-bindgen entry point and WebGL 2 renderer |
 | `tools/swiv-extract` | CLI that dumps everything to PNG / OBJ / WAV / JSON, rips CD audio, converts Smacker videos |
 | `web/` | page, HUD, input, audio, file loading |
+| `web/frontend.js` | the original's menus (pilots, controller, main menu, setup, credits) and the mission briefing map |
+| `web/intro.js` | the opening cinematic, rebuilt in real time with three.js (vendored in `web/vendor/`, MIT) |
 | `docs/formats.md` | byte-level format notes and the flight model |
 
 ## Play
@@ -36,6 +38,13 @@ colour maps and its texture pages as 8-bit PNGs (indexed with the game's own pal
 view correctly and keep the exact indices the renderer needs), a slim `level.bd` per level with
 the models, spawns and tables, the sound effects as WAV and the soundtrack as MP3, listed in
 `manifest.json`. Open <http://localhost:8080> and the menu comes up straight away.
+
+The page opens like the original: press a key, the intro plays (any key skips; add
+`?intro=0` to the URL to leave it out), then the front end runs over a live flyover of a level
+with the menu headings in the game's 3D font: Select Pilot, New Pilot, Controller Type, Main
+Menu (Start Game, Setup, Replay Intro, Credits, New Player, Exit) and Setup (volumes, music
+track, detail level). Pilots and their campaign progress are kept in `localStorage`; Start
+Game shows the mission briefing map before each level.
 
 Without `web/assets/` the page asks for the game instead: click **Choose game folder** and
 select the CD's `GameData` folder (or the whole CD folder). For the soundtrack, include
@@ -74,7 +83,12 @@ loadable in order, enemies (turrets, tanks, boats, aircraft, drones, spawners), 
 weapons with auto-targeting, objectives and level progression, HUD, radar, map, sound
 effects, engine loop and CD music.
 
+Checked against the original running in DOSBox-X (frames and sound recorded from the
+emulator): the menu flow and its look, the briefing map, the gun's rhythm (pairs of pulses,
+~2.5 a second held) and its sound (a click every ~140 ms while the trigger is held), houses
+taking 8 hits, and the winch cable (a thin solid red line from the belly to the item).
+
 Approximated (not yet decompiled function by function): enemy AI tuning, weapon damage and
-pickup effects, the buggy / ski vehicle changeovers, bosses' special patterns, menus and
-briefing videos, weapon sprites (drawn as procedural glows until the GLOBAL.BD sprite banks
+pickup effects, the buggy / ski vehicle changeovers, bosses' special patterns, the
+briefing videos (the map briefing is rebuilt, the Smacker clips are not played), weapon sprites (drawn as procedural glows until the GLOBAL.BD sprite banks
 are decoded), wreck smoke and fire, and rotor discs.

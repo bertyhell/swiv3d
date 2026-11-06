@@ -79,6 +79,11 @@ pub struct Game {
     fog_far: f32,
     /// Pickup names in flight, with the time they appeared.
     texts: Vec<(String, f64)>,
+    /// Menu backdrop: the craft flies itself over the level, untouchable, and its events are
+    /// dropped (the original's menus run over a live flyover of a level).
+    attract: bool,
+    /// Menu heading in the 3D font: text, colour and the time it appeared.
+    title: Option<(String, [f32; 3], f64)>,
 }
 
 #[wasm_bindgen]
@@ -104,6 +109,8 @@ impl Game {
             instances: Vec::new(),
             fog_far: 3600.0,
             texts: Vec::new(),
+            attract: false,
+            title: None,
         })
     }
 
@@ -185,6 +192,22 @@ impl Game {
         }
     }
 
+    /// Run the loaded level as a menu backdrop (see `attract`).
+    pub fn set_attract(&mut self, on: bool) {
+        self.attract = on;
+        self.events.clear();
+    }
+
+    /// Show a menu heading in the 3D font (lines split by `\n`); an empty text hides it.
+    pub fn set_title(&mut self, text: String, r: f32, g: f32, b: f32) {
+        let same = self.title.as_ref().is_some_and(|t| t.0 == text && t.1 == [r, g, b]);
+        if text.is_empty() {
+            self.title = None;
+        } else if !same {
+            self.title = Some((text, [r, g, b], self.time));
+        }
+    }
+
     pub fn set_view_distance(&mut self, cells: f32) {
         self.fog_far = cells * 64.0;
     }
@@ -192,7 +215,13 @@ impl Game {
     /// Advance the simulation by real time (ms) at a fixed TICK_HZ.
     pub fn update(&mut self, dt_ms: f64, key_bits: u32) {
         let Some(w) = &mut self.world else { return };
-        let input = input_from(key_bits);
+        let input = if self.attract {
+            // Autopilot: cruise ahead, with a slow turn now and then.
+            let t = w.tick;
+            Input { forward: t % 300 < 260, left: t % 420 < 50, right: (t + 210) % 420 < 30, ..Default::default() }
+        } else {
+            input_from(key_bits)
+        };
         // Targets reach halfway to the black fog at the horizon.
         w.target_range = (self.fog_far / 64.0 / 2.0) as i32;
         let tick = 1000.0 / TICK_HZ as f64;
@@ -202,8 +231,14 @@ impl Game {
             self.accum -= tick;
             self.prev_pos = w.player.pos;
             self.prev_yaw = w.player.yaw;
+            if self.attract {
+                w.health = 100;
+                w.lives = w.lives.max(3);
+            }
             w.step(&input);
-            self.events.extend(w.events.iter().map(event_code));
+            if !self.attract {
+                self.events.extend(w.events.iter().map(event_code));
+            }
         }
     }
 
@@ -246,7 +281,8 @@ impl Game {
         let now = self.time;
         self.texts.retain(|(_, t0)| now - t0 < TEXT_FLIGHT_SECS as f64);
         let texts: Vec<(String, f32)> = self.texts.iter().map(|(s, t0)| (s.clone(), ((now - t0) as f32 / TEXT_FLIGHT_SECS).clamp(0.0, 1.0))).collect();
-        self.renderer.render(pw as i32, ph as i32, &cam, &self.instances, &beams, &texts, self.time as f32, self.fog_far);
+        let title = self.title.as_ref().map(|(t, c, t0)| (t.as_str(), *c, (now - t0) as f32));
+        self.renderer.render(pw as i32, ph as i32, &cam, &self.instances, &beams, &texts, title, self.time as f32, self.fog_far);
     }
 
     /// Event codes produced since the last call.
@@ -337,6 +373,20 @@ impl Game {
             goal[0],
             goal[1],
         ]
+    }
+
+    /// For the mission briefing: the craft's start, then every objective target, as
+    /// [x, z, group] triplets in map cells (group -1 for the start).
+    pub fn briefing(&self) -> Vec<f32> {
+        let Some(w) = &self.world else { return vec![] };
+        let p = w.player.pos;
+        let mut out = vec![p[0] as f32 / 16384.0, p[2] as f32 / 16384.0, -1.0];
+        for e in w.entities.iter().filter(|e| e.alive) {
+            if let Some(g) = e.objective {
+                out.extend_from_slice(&[e.pos[0] as f32 / 16384.0, e.pos[2] as f32 / 16384.0, g as f32]);
+            }
+        }
+        out
     }
 
     /// 512x512 RGBA of the level's colour map.

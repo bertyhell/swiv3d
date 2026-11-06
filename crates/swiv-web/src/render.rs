@@ -209,7 +209,7 @@ void main() {
 }"#;
 
 /// Camera-facing billboards: glows (energy pulses, fireballs, missiles), the lock-on ring and
-/// tractor beams (a ribbon from `u_center` to `u_end`, `u_size` wide).
+/// ribbons from `u_center` to `u_end`, `u_size` wide (beams, and the solid winch cable).
 const SPRITE_VS: &str = r#"#version 300 es
 precision highp float;
 layout(location=0) in vec2 a_corner;
@@ -219,12 +219,12 @@ uniform vec3 u_end;
 uniform vec3 u_right;
 uniform vec3 u_up;
 uniform float u_size;
-uniform int u_kind;          // 0 glow, 1 lock-on ring, 2 beam
+uniform int u_kind;          // 0 glow, 1 lock-on ring, 2 beam, 4 cable
 out vec2 v_q;
 void main() {
     v_q = a_corner;
     vec3 p;
-    if (u_kind == 2) {
+    if (u_kind == 2 || u_kind == 4) {
         vec3 a = mix(u_center, u_end, a_corner.x * 0.5 + 0.5);
         vec3 side = normalize(cross(u_end - u_center, a));
         p = a + side * a_corner.y * u_size;
@@ -263,6 +263,10 @@ void main() {
         vec3 c = mix(vec3(0.55, 0.05, 0.0), vec3(1.0, 0.45, 0.05), smoothstep(0.0, 0.45, heat));
         c = mix(c, vec3(1.0, 0.92, 0.55), smoothstep(0.45, 0.9, heat));
         o = vec4(c * u_core.r, 1.0);
+        return;
+    }
+    if (u_kind == 4) {
+        o = vec4(u_core, 1.0);
         return;
     }
     if (u_kind == 2) {
@@ -306,12 +310,12 @@ const TEXT_FS: &str = r#"#version 300 es
 precision highp float;
 in vec3 v_normal;
 uniform float u_alpha;
+uniform vec3 u_colour;
 out vec4 o;
 void main() {
     vec3 n = normalize(gl_FrontFacing ? v_normal : -v_normal);
     float d = max(dot(n, normalize(vec3(-0.35, 0.45, 0.82))), 0.0);
-    vec3 red = vec3(0.78, 0.05, 0.03);
-    o = vec4(red * (0.28 + 0.8 * d), u_alpha);
+    o = vec4(u_colour * (0.28 + 0.8 * d), u_alpha);
 }"#;
 
 /// Rotors: a model's special (flag 1/2) triangles mark its rotor discs; each is drawn as a
@@ -513,7 +517,7 @@ impl Renderer {
             (1, &["u_model", "u_viewproj", "u_tex", "u_fog", "u_fog_range", "u_flash", "u_alpha", "u_height", "u_cam", "u_char"][..]),
             (2, &["u_viewproj", "u_center", "u_end", "u_right", "u_up", "u_size", "u_core", "u_glow", "u_kind", "u_time", "u_seed"][..]),
             (4, &["u_viewproj", "u_model", "u_center", "u_axis_u", "u_axis_v", "u_radius", "u_spin"][..]),
-            (3, &["u_proj", "u_model", "u_alpha"][..]),
+            (3, &["u_proj", "u_model", "u_alpha", "u_colour"][..]),
         ] {
             for &name in names {
                 let p = [&r.terrain_prog, &r.model_prog, &r.sprite_prog, &r.text_prog, &r.rotor_prog][prog];
@@ -587,6 +591,7 @@ impl Renderer {
         let half_h = DEPTH * (fov / 2.0).tan();
         let half_w = half_h * aspect;
         let glyph = |c: char| self.glyphs.get(c as usize).copied().unwrap_or((0, 0, 45));
+        gl.uniform3f(self.u("x_colour"), 0.78, 0.05, 0.03);
         for (text, t) in texts {
             let width: f32 = text.chars().map(|c| glyph(c).2 as f32 * 2.0 + GAP).sum::<f32>() - GAP;
             let scale = 0.95 * half_w / width.max(1.0);
@@ -609,6 +614,65 @@ impl Renderer {
             }
         }
         gl.disable(GL::BLEND);
+        gl.bind_vertex_array(None);
+    }
+
+    /// A menu title in the 3D font across the top of the screen, one line per `\n`, turning
+    /// slowly about the vertical axis like the original's menu headings. `age` is the seconds
+    /// since it appeared: it swings in edge-on and settles into a steady spin.
+    fn draw_title(&self, proj: &Mat4, aspect: f32, fov: f32, title: &str, colour: [f32; 3], age: f32) {
+        let Some(vao) = &self.text_vao else { return };
+        if title.is_empty() {
+            return;
+        }
+        const GAP: f32 = 24.0;
+        const DEPTH: f32 = 400.0;
+        let gl = &self.gl;
+        gl.use_program(Some(&self.text_prog));
+        gl.bind_vertex_array(Some(vao));
+        gl.uniform_matrix4fv_with_f32_array(self.u("x_proj"), false, &proj.to_cols_array());
+        gl.clear(GL::DEPTH_BUFFER_BIT);
+        gl.enable(GL::DEPTH_TEST);
+        gl.disable(GL::BLEND);
+        gl.uniform1f(self.u("x_alpha"), 1.0);
+        gl.uniform3f(self.u("x_colour"), colour[0], colour[1], colour[2]);
+        let half_h = DEPTH * (fov / 2.0).tan();
+        let half_w = half_h * aspect.min(1.6);
+        let glyph = |c: char| self.glyphs.get(c as usize).copied().unwrap_or((0, 0, 45));
+        let lines: Vec<&str> = title.lines().collect();
+        let widest = lines.iter().map(|l| l.chars().map(|c| glyph(c).2 as f32 * 2.0 + GAP).sum::<f32>() - GAP).fold(1.0, f32::max);
+        // Glyphs span y -91..108 (about 200 units, descenders to -123); leave a clear gap
+        // between lines and fit the whole block in the band above the menu box.
+        const GLYPH_H: f32 = 200.0;
+        const LINE_UNITS: f32 = 285.0;
+        let block_units = GLYPH_H + (lines.len().max(1) - 1) as f32 * LINE_UNITS;
+        let scale = (0.62 * half_w / widest).min(half_h * 0.56 / block_units).min(half_h * 0.2 / 60.0);
+        let line_h = LINE_UNITS * scale;
+        // Swing in from edge-on over the first second, then keep turning (a full turn every
+        // 12 s, so it reads mirrored half the time, as in the original).
+        let settle = (age / 1.0).clamp(0.0, 1.0);
+        let ease = 1.0 - (1.0 - settle).powi(3);
+        let spin = (1.0 - ease) * -1.5 + age * std::f32::consts::TAU / 12.0 * ease;
+        // Centre the block in the band between the menu box and the top of the screen.
+        let top = half_h * 0.66 + (lines.len().max(1) - 1) as f32 * line_h / 2.0;
+        for (k, line) in lines.iter().enumerate() {
+            let width: f32 = line.chars().map(|c| glyph(c).2 as f32 * 2.0 + GAP).sum::<f32>() - GAP;
+            let at = Mat4::from_translation(Vec3::new(0.0, top - k as f32 * line_h, -DEPTH))
+                * Mat4::from_rotation_y(spin)
+                * Mat4::from_rotation_x(-0.25)
+                * Mat4::from_scale(Vec3::splat(scale));
+            let mut pen = -width / 2.0;
+            for c in line.chars() {
+                let (first, count, half) = glyph(c);
+                pen += half as f32;
+                if count > 0 {
+                    let m = at * Mat4::from_translation(Vec3::new(pen, 0.0, 0.0));
+                    gl.uniform_matrix4fv_with_f32_array(self.u("x_model"), false, &m.to_cols_array());
+                    gl.draw_arrays(GL::TRIANGLES, first, count);
+                }
+                pen += half as f32 + GAP;
+            }
+        }
         gl.bind_vertex_array(None);
     }
 
@@ -797,7 +861,7 @@ impl Renderer {
 
 
     #[allow(clippy::too_many_arguments)]
-    pub fn render(&self, w: i32, h: i32, cam: &Camera, instances: &[Instance], beams: &[([i32; 3], [i32; 3])], texts: &[(String, f32)], time: f32, fog_far: f32) {
+    pub fn render(&self, w: i32, h: i32, cam: &Camera, instances: &[Instance], beams: &[([i32; 3], [i32; 3])], texts: &[(String, f32)], title: Option<(&str, [f32; 3], f32)>, time: f32, fog_far: f32) {
         let gl = &self.gl;
         gl.viewport(0, 0, w, h);
         gl.clear_color(self.fog[0], self.fog[1], self.fog[2], 1.0);
@@ -939,40 +1003,21 @@ impl Renderer {
         let rel_pos = |p: [i32; 3]| {
             Vec3::new(wrap(p[0] - cam.pos[0]) as f32 / 256.0, (p[1] - cam.pos[1]) as f32 / 256.0, -(wrap(p[2] - cam.pos[2]) as f32 / 256.0))
         };
-        gl.uniform1i(self.u("s_kind"), 2);
-        gl.uniform3f(self.u("s_core"), 1.0, 0.55, 0.45);
-        gl.uniform3f(self.u("s_glow"), 0.9, 0.05, 0.02);
-        gl.uniform1f(self.u("s_size"), 1.2);
-        // The hoist: a yellow arm lowered from the craft with a red grab at its end, the beam
-        // running from there down to the collectable.
-        let hoist: Vec<(Vec3, Vec3)> = beams
-            .iter()
-            .map(|&(a, b)| {
-                let (a, b) = (rel_pos(a), rel_pos(b));
-                (a, b + (a - b).normalize_or_zero() * 14.0)
-            })
-            .collect();
-        for &(a, grab) in &hoist {
-            gl.uniform3f(self.u("s_center"), a.x, a.y, a.z);
-            gl.uniform3f(self.u("s_end"), grab.x, grab.y, grab.z);
-            gl.draw_arrays(GL::TRIANGLE_STRIP, 0, 4);
-        }
-        gl.uniform3f(self.u("s_core"), 1.0, 0.9, 0.3);
-        gl.uniform3f(self.u("s_glow"), 0.75, 0.55, 0.0);
-        gl.uniform1f(self.u("s_size"), 2.4);
-        for (&(_, b), &(_, grab)) in beams.iter().zip(&hoist) {
-            let b = rel_pos(b);
-            gl.uniform3f(self.u("s_center"), b.x, b.y, b.z);
-            gl.uniform3f(self.u("s_end"), grab.x, grab.y, grab.z);
-            gl.draw_arrays(GL::TRIANGLE_STRIP, 0, 4);
-        }
-        gl.uniform1i(self.u("s_kind"), 0);
-        gl.uniform3f(self.u("s_core"), 1.0, 0.4, 0.3);
-        gl.uniform3f(self.u("s_glow"), 0.9, 0.05, 0.0);
-        gl.uniform1f(self.u("s_size"), 4.5);
-        for &(_, grab) in &hoist {
-            gl.uniform3f(self.u("s_center"), grab.x, grab.y, grab.z);
-            gl.draw_arrays(GL::TRIANGLE_STRIP, 0, 4);
+        // The winch cable: a thin, solid red line from the craft's belly straight down to the
+        // collectable (as in the original: no glow, about a pixel wide at 640x400).
+        if !beams.is_empty() {
+            gl.disable(GL::BLEND);
+            gl.uniform1i(self.u("s_kind"), 4);
+            gl.uniform3f(self.u("s_core"), 0.78, 0.02, 0.04);
+            gl.uniform1f(self.u("s_size"), 0.55);
+            for &(item, craft) in beams {
+                let (a, b) = (rel_pos(craft), rel_pos(item));
+                gl.uniform3f(self.u("s_center"), a.x, a.y, a.z);
+                gl.uniform3f(self.u("s_end"), b.x, b.y, b.z);
+                gl.draw_arrays(GL::TRIANGLE_STRIP, 0, 4);
+            }
+            gl.enable(GL::BLEND);
+            gl.blend_func(GL::ONE, GL::ONE);
         }
         for inst in instances.iter().filter(|i| i.model < 0) {
             let fire = match inst.model {
@@ -1026,6 +1071,9 @@ impl Renderer {
         gl.disable(GL::BLEND);
         gl.bind_vertex_array(None);
         self.draw_texts(&proj, aspect, cam.fov, texts);
+        if let Some((text, colour, age)) = title {
+            self.draw_title(&proj, aspect, cam.fov, text, colour, age);
+        }
     }
 }
 
@@ -1049,6 +1097,7 @@ fn xname(name: &'static str) -> &'static str {
         "u_proj" => "x_proj",
         "u_model" => "x_model",
         "u_alpha" => "x_alpha",
+        "u_colour" => "x_colour",
         other => other,
     }
 }

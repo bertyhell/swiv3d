@@ -52,19 +52,20 @@ const PICKUP_HEALTH_10: i32 = 100;
 const PICKUP_HEALTH_25: i32 = 101;
 const PICKUP_HEALTH_MEGA: i32 = 102;
 const PICKUP_POWER_UP: std::ops::RangeInclusive<i32> = 110..=113;
-/// The gun fires in bursts of two pulses, "one, two, pause", one burst a second (from the
-/// footage): `PULSE_GAP` ticks between the two pulses, `BURST_PERIOD` from burst to burst.
-const PULSE_GAP: i32 = 6;
-const BURST_PERIOD: i32 = TICK_HZ as i32;
+/// The gun fires in bursts of two pulses, "one, two, pause": `PULSE_GAP` ticks between the
+/// two pulses, `BURST_PERIOD` from burst to burst. Measured on the original running in
+/// DOSBox with the trigger held: pairs ~0.23 s apart, ~2.5 pulses a second overall.
+const PULSE_GAP: i32 = 7;
+const BURST_PERIOD: i32 = 24;
 const BURST_PULSES: i32 = 2;
 /// What one pulse does.
 pub const PULSE_DAMAGE: i32 = 4;
-/// Gun pulses it takes to bring down scenery (from the footage): trees, electricity pylons
-/// (models 552/553) and houses. Objective buildings keep their data hit points but never go
+/// Gun pulses it takes to bring down scenery: trees, electricity pylons (models 552/553)
+/// and houses (8 impacts from first hit to explosion on the original in DOSBox). Objective buildings keep their data hit points but never go
 /// down faster than a house.
 const TREE_HITS: i32 = 2;
 const PYLON_HITS: i32 = 3;
-const HOUSE_HITS: i32 = 6;
+const HOUSE_HITS: i32 = 8;
 /// Ammo per special pickup (the footage shows Missiles going x00 -> x06 -> x12).
 const SPECIAL_AMMO: i32 = 6;
 /// Ticks the tractor beam takes to winch a pickup aboard, and the extra weight it puts on

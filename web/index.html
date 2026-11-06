@@ -66,28 +66,34 @@
   <p id="load-status" role="status"></p>
 </div>
 
-<div id="menu" class="panel" hidden>
-  <h1>SWIV <em>3D</em></h1>
-  <label class="field">Mission
-    <select id="level"></select>
-  </label>
-  <label class="field">Music
-    <select id="music"></select>
-  </label>
-  <button id="start" class="button primary">Launch</button>
-  <table class="keys">
-    <tr><td>&larr; &rarr;</td><td>Turn</td><td>&uarr; &darr; / W S</td><td>Thrust</td></tr>
-    <tr><td>A D / Z X</td><td>Strafe</td><td>Shift + &larr; &rarr;</td><td>Strafe</td></tr>
-    <tr><td>Space / Ctrl</td><td>Fire</td><td>Enter</td><td>Special</td></tr>
-    <tr><td>Q E / Tab</td><td>Special weapon</td><td>M / Esc</td><td>Map / Pause</td></tr>
-  </table>
+<!-- Front end in the style of the original: a heading in the game's 3D font (drawn by the
+     renderer over a live flyover of a level), a grey header box and a list of options. -->
+<div id="splash" hidden>
+  <div class="splash-logo">SWIV <span>3D</span></div>
+  <p class="blink">Press any key</p>
 </div>
 
-<div id="pause" class="panel" hidden>
-  <h2>Paused</h2>
-  <button id="resume" class="button primary">Resume</button>
-  <button id="quit" class="button">Quit to menu</button>
-  <label class="field">Next music track <kbd>N</kbd></label>
+<div id="frontend" hidden>
+  <div id="menu-box" role="menu">
+    <div id="menu-header"></div>
+    <ul id="menu-items"></ul>
+  </div>
+  <div id="menu-help"><kbd>&uarr;</kbd><kbd>&darr;</kbd> select &nbsp; <kbd>Enter</kbd> choose &nbsp; <kbd>Esc</kbd> back</div>
+</div>
+
+<div id="briefing" hidden>
+  <canvas id="briefing-map"></canvas>
+  <div id="briefing-skip">Press <kbd>Enter</kbd> to launch</div>
+</div>
+
+<div id="pause" class="menu-overlay" hidden>
+  <div class="menu-box">
+    <div class="menu-header">Game Paused</div>
+    <ul class="menu-list">
+      <li><button id="resume">Resume</button></li>
+      <li><button id="quit">Quit To Main Menu</button></li>
+    </ul>
+  </div>
 </div>
 
 <script type="module" src="main.js"></script>
