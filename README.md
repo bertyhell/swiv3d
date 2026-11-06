@@ -1,7 +1,6 @@
 # SWIV 3D — Rust + WebAssembly + WebGL 2
 
 A browser rebuild of **SWIV 3D** (SCi, 1996) that runs on the original game data.
-No copyrighted assets are included: the player points the page at their own copy of the CD.
 
 ![The first level running in the browser: the helicopter over a river, with pylons, buildings, the targeting reticle, radar and score](docs/screenshot.jpg)
 
@@ -30,7 +29,7 @@ Run these from this `remake/` folder:
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.100
-./build-web.sh
+./build.sh
 cargo run --release -p swiv-extract --bin swiv-pack -- "../original/SWIV 3D (1996)/SWIV3D/cd/cd/GameData" web/assets --music ../mp3
 python3 -m http.server -d web 8080
 ```
