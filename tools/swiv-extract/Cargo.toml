@@ -1,0 +1,10 @@
+[package]
+name = "swiv-extract"
+description = "Dump SWIV 3D game data (levels, models, textures, sounds, strings, music, videos) to open formats"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+swiv-formats = { path = "../../crates/swiv-formats" }
+png = "0.17"

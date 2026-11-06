@@ -1,0 +1,9 @@
+[package]
+name = "swiv-formats"
+description = "Parsers for SWIV 3D (1996) data files: BD/SLV bundles, levels, models, textures, strings, sounds"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+png = "0.17"

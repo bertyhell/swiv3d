@@ -1,0 +1,12 @@
+# Build output
+/target
+/web/pkg
+
+# Raw extraction output and loose game data (regenerate locally)
+/assets-out
+/web/data
+*.zip
+*.SLV
+*.BD
+*.smk
+*.SMK

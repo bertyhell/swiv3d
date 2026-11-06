@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SWIV 3D</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="hud" hidden>
+  <!-- Layout of the original: map globe top left, energy capsule top right,
+       special weapon bottom left, score bottom right. -->
+  <canvas id="globe" width="150" height="150" aria-label="Map"></canvas>
+  <div id="objective"></div>
+  <svg id="energy" viewBox="0 0 40 100" aria-label="Energy">
+    <defs>
+      <linearGradient id="chrome" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0" stop-color="#3a3d42"/><stop offset="0.28" stop-color="#e9edf2"/>
+        <stop offset="0.5" stop-color="#9aa0a8"/><stop offset="0.8" stop-color="#5b6067"/>
+        <stop offset="1" stop-color="#2b2e33"/>
+      </linearGradient>
+      <linearGradient id="energy-fill" x1="0" x2="1">
+        <stop offset="0" stop-color="#a9adb3"/><stop offset="0.45" stop-color="#f4f6f8"/>
+        <stop offset="1" stop-color="#8d9298"/>
+      </linearGradient>
+      <clipPath id="energy-window"><path d="M13 16 L28 13 L28 84 L13 87 Z"/></clipPath>
+    </defs>
+    <rect x="3" y="2" width="34" height="96" rx="17" fill="url(#chrome)" stroke="#16181b" stroke-width="1.2"/>
+    <path d="M13 16 L28 13 L28 84 L13 87 Z" fill="#0b0c0e" stroke="#1d2024" stroke-width="1.5"/>
+    <g clip-path="url(#energy-window)"><rect id="energy-level" x="10" y="13" width="22" height="75" fill="url(#energy-fill)"/></g>
+    <ellipse cx="15" cy="10" rx="6" ry="3" fill="#fff" opacity="0.45"/>
+  </svg>
+  <div id="special">
+    <svg id="special-icon" viewBox="0 0 48 48" aria-hidden="true">
+      <defs>
+        <radialGradient id="ring" cx="0.35" cy="0.3" r="0.8">
+          <stop offset="0" stop-color="#f1f3f6"/><stop offset="0.55" stop-color="#8f949b"/><stop offset="1" stop-color="#3b3e43"/>
+        </radialGradient>
+      </defs>
+      <rect x="3" y="3" width="42" height="42" rx="13" fill="url(#ring)"/>
+      <rect x="10" y="10" width="28" height="28" rx="6" fill="#0d0e10" stroke="#e5e7ea" stroke-width="1.5"/>
+      <g id="special-glyph" fill="none" stroke="#f4f4f4" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></g>
+    </svg>
+    <div id="special-text"><span id="special-count"></span><span id="special-name"></span></div>
+  </div>
+  <div id="score-block">
+    <div id="lives" aria-label="Lives"></div>
+    <div id="score">0000000</div>
+  </div>
+  <canvas id="minimap" width="512" height="512" hidden></canvas>
+  <div id="banner" hidden></div>
+</div>
+
+<div id="loader" class="panel">
+  <h1>SWIV <em>3D</em></h1>
+  <p class="sub">SCi, 1996 &mdash; rebuilt in Rust, WebAssembly and WebGL 2</p>
+  <p>This page needs the original game files. Choose the folder from your SWIV 3D CD
+     (or its <code>GameData</code> folder). Nothing is uploaded: the files are read
+     locally by your browser.</p>
+  <label class="button primary" for="pick">Choose game folder</label>
+  <input id="pick" type="file" webkitdirectory multiple hidden>
+  <p class="hint">Or drop the folder here. Add <code>swiv3d.cue</code> + <code>swiv3d.bin</code>
+     (or the <code>music/</code> folder from <code>swiv-extract</code>) for the CD soundtrack.</p>
+  <p id="load-status" role="status"></p>
+</div>
+
+<div id="menu" class="panel" hidden>
+  <h1>SWIV <em>3D</em></h1>
+  <label class="field">Mission
+    <select id="level"></select>
+  </label>
+  <label class="field">Music
+    <select id="music"></select>
+  </label>
+  <button id="start" class="button primary">Launch</button>
+  <table class="keys">
+    <tr><td>&larr; &rarr;</td><td>Turn</td><td>&uarr; &darr; / W S</td><td>Thrust</td></tr>
+    <tr><td>A D / Z X</td><td>Strafe</td><td>Shift + &larr; &rarr;</td><td>Strafe</td></tr>
+    <tr><td>Space / Ctrl</td><td>Fire</td><td>Enter</td><td>Special</td></tr>
+    <tr><td>Q E / Tab</td><td>Special weapon</td><td>M / Esc</td><td>Map / Pause</td></tr>
+  </table>
+</div>
+
+<div id="pause" class="panel" hidden>
+  <h2>Paused</h2>
+  <button id="resume" class="button primary">Resume</button>
+  <button id="quit" class="button">Quit to menu</button>
+  <label class="field">Next music track <kbd>N</kbd></label>
+</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

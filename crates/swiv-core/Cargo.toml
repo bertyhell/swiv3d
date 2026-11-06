@@ -1,0 +1,9 @@
+[package]
+name = "swiv-core"
+description = "Deterministic SWIV 3D game simulation (fixed-point, ported from the original)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+swiv-formats = { path = "../swiv-formats" }
