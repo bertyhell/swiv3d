@@ -20,5 +20,6 @@
     "TERRANBS": { "textures": [12000, 12001, 12002, 12003, 12004] }
   },
   "sounds": ["1000-explosion-1.wav", "1001-explosion-2.wav", "1003-explosion-3.wav", "2000-gun-fire-1.wav", "2001-gun-fire-2.wav", "2002-anti-air.wav", "2003-anti-air-2.wav", "2004-machine-gun-1.wav", "2005-machine-gun-2.wav", "3000-switch-guns-1.wav", "3001-switch-guns-2.wav", "3002-hit.wav", "4000-pickup-ammo.wav", "4001-mission-briefing-intro.wav", "4002-mission-briefing-waypoint.wav", "4010-button.wav", "4011-damage.wav", "4020-heli-explosion.wav", "5000-rotor-blades.wav", "5001-tracks.wav", "5002-ether.wav", "6000-rewind-1.wav", "6001-rewind-2.wav", "6002-menu-change-menu.wav", "6003-menu-change-button.wav", "6004-menu-change-setting.wav"],
-  "music": ["track02.mp3", "track03.mp3", "track04.mp3", "track05.mp3", "track06.mp3", "track07.mp3", "track08.mp3", "track09.mp3", "track10.mp3"]
+  "music": ["track02.mp3", "track03.mp3", "track04.mp3", "track05.mp3", "track06.mp3", "track07.mp3", "track08.mp3", "track09.mp3", "track10.mp3"],
+  "intro": "intro.wav"
 }

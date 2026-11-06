@@ -3,10 +3,15 @@
 //! `swiv_formats::pack`); everything else stays in small bundles.
 //!
 //! Usage: swiv-pack <GameData dir> <out dir, e.g. web/assets> [--music <dir of trackNN.mp3>]
+//!                  [--anims <the CD's Anims dir>]
+//!
+//! With `--anims` (and ffmpeg on the PATH) the soundtrack of the two intro videos is written as
+//! `intro.wav`, which the real-time intro cinematic plays in sync.
 
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use swiv_formats::{bundle::Bundle, level::{Level, NEUTRAL_SHADE}, pack, sounds};
 
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
@@ -14,11 +19,11 @@ type Res<T> = Result<T, Box<dyn std::error::Error>>;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        eprintln!("usage: swiv-pack <GameData dir> <out dir> [--music DIR]");
+        eprintln!("usage: swiv-pack <GameData dir> <out dir> [--music DIR] [--anims DIR]");
         std::process::exit(2);
     }
-    let music = args.iter().position(|a| a == "--music").and_then(|i| args.get(i + 1)).map(PathBuf::from);
-    if let Err(e) = run(Path::new(&args[1]), Path::new(&args[2]), music) {
+    let opt = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).map(PathBuf::from);
+    if let Err(e) = run(Path::new(&args[1]), Path::new(&args[2]), opt("--music"), opt("--anims")) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -43,7 +48,36 @@ fn png(path: &Path, w: u32, h: u32, pixels: &[u8], palette: Option<&[[u8; 3]]>, 
     Ok(())
 }
 
-fn run(data: &Path, out: &Path, music: Option<PathBuf>) -> Res<()> {
+/// Frames in INTRO1.SMK at the Smacker rate of one frame per 71 ms: the second video starts
+/// exactly this far in, both on screen and in `intro.wav`.
+const INTRO1_SECONDS: f64 = 315.0 * 0.071;
+
+/// The file in `dir` called `name`, whatever its case on disk (the CD mixes INTRO1.SMK and Intro2.smk).
+fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
+    fs::read_dir(dir).ok()?.filter_map(|e| e.ok().map(|e| e.path())).find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name)))
+}
+
+/// The intro videos' soundtrack, INTRO1 padded to its picture length then Intro2, as 8-bit WAV
+/// (the Smacker audio is 8-bit 22 kHz stereo, so this is lossless). Returns false when skipped.
+fn intro_audio(anims: &Path, out: &Path) -> Res<bool> {
+    let (Some(a), Some(b)) = (find_ci(anims, "INTRO1.SMK"), find_ci(anims, "INTRO2.SMK")) else {
+        eprintln!("intro videos not found in {}: skipping intro audio", anims.display());
+        return Ok(false);
+    };
+    let ok = Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-i"]).arg(&a).arg("-i").arg(&b)
+        .args(["-filter_complex", &format!("[0:a]apad,atrim=end={INTRO1_SECONDS}[a];[a][1:a]concat=n=2:v=0:a=1"), "-c:a", "pcm_u8"])
+        .arg(out.join("intro.wav"))
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("ffmpeg failed or missing: skipping intro audio");
+    }
+    Ok(ok)
+}
+
+fn run(data: &Path, out: &Path, music: Option<PathBuf>, anims: Option<PathBuf>) -> Res<()> {
     fs::create_dir_all(out)?;
     let mut manifest = String::from("{\n  \"levels\": {");
     let mut levels: Vec<_> = fs::read_dir(data)?
@@ -101,7 +135,13 @@ fn run(data: &Path, out: &Path, music: Option<PathBuf>) -> Res<()> {
             tracks.push(format!("\"{n}\""));
         }
     }
-    let _ = writeln!(manifest, "  \"music\": [{}]\n}}", tracks.join(", "));
+    let _ = write!(manifest, "  \"music\": [{}]", tracks.join(", "));
+    if let Some(a) = anims {
+        if intro_audio(&a, out)? {
+            manifest.push_str(",\n  \"intro\": \"intro.wav\"");
+        }
+    }
+    manifest.push_str("\n}\n");
     fs::write(out.join("manifest.json"), manifest)?;
     println!("levels: {} ({:.1} MB), sounds: {}, music tracks: {}", levels.len(), bytes as f64 / 1e6, effects.len(), tracks.len());
     Ok(())

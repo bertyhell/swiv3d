@@ -193,7 +193,17 @@ async function runIntro() {
   state.mode = 'intro';
   playMusic(-1);
   $('frontend').hidden = true;
-  await playIntro({ ctx: state.audio, sounds: state.sounds, master: state.sfxBus });
+  await playIntro({ ctx: state.audio, sounds: state.sounds, master: state.master, soundtrack: await introSoundtrack() });
+}
+
+// The intro videos' own soundtrack (swiv-pack --anims writes it), decoded once on first use.
+let introTrack = null;
+async function introSoundtrack() {
+  if (!state.assets?.intro || !state.audio) return null;
+  introTrack ??= bytesOf(`assets/${state.assets.intro}`)
+    .then((b) => state.audio.decodeAudioData(b.buffer))
+    .catch((e) => { console.warn('intro soundtrack', e); return null; });
+  return introTrack;
 }
 
 async function enterFrontEnd() {

@@ -3,6 +3,8 @@
 A browser rebuild of **SWIV 3D** (SCi, 1996) that runs on the original game data.
 No copyrighted assets are included: the player points the page at their own copy of the CD.
 
+![The first level running in the browser: the helicopter over a river, with pylons, buildings, the targeting reticle, radar and score](docs/screenshot.jpg)
+
 The data formats and the player flight model were reverse-engineered from the original
 executables, whose Watcom debug symbols survive (see [docs/formats.md](docs/formats.md)).
 The earlier Unity fan remake (<https://github.com/bertyhell/swiv3d>) was used only as a
