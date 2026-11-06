@@ -44,6 +44,11 @@ const GUN_CLICK = 2005;          // the rattle's click: its first 0.12 s
 const GUN_CLICK_MS = 140;
 // Level used as the menus' backdrop (the original flies over a level behind its menus).
 const MENU_LEVELS = ['TERRAN01', 'TERRAN00', 'TERRAN02'];
+// Each level's name is GLOBAL.BD string 200/n, n in the original's campaign order.
+const LEVEL_NAME_INDEX = {
+  TERRAN00: 0, TERRAN01: 1, TERRAN02: 2, TERRAN03: 3, TERRAN04: 4, TERRAN05: 5, TERRAN06: 6, TERRANBS: 7,
+  ARCTIC01: 8, ARCTIC02: 9, ARCTIC03: 10, LUNAR01: 11, MARS01: 12, MARS02: 13, MARS03: 14, MARS04: 15, MARS05: 16,
+};
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -62,6 +67,7 @@ const state = {
   carry: null,
   showMap: false,
   pickupNames: new Map(), // GLOBAL.BD strings group 100 (English): pickup index -> name
+  strings: new Map(),     // GLOBAL.BD strings (English), "group/index" -> text
   assets: null,          // manifest of the swiv-pack layout in assets/, when it is there
   mapCanvas: null,
   mode: 'loader',        // loader | splash | intro | menu | briefing | game
@@ -155,7 +161,9 @@ async function afterFilesLoaded() {
     const text = global_strings(global);
     for (const line of text.split('\n')) {
       const [lang, group, index, ...rest] = line.split('|');
-      if (lang === '0' && group === '100') state.pickupNames.set(+index, rest.join(' '));
+      if (lang !== '0') continue;
+      if (group === '100') state.pickupNames.set(+index, rest.join(' '));
+      state.strings.set(`${group}/${index}`, rest.join(' '));
     }
   } catch (e) {
     console.warn('strings', e);
@@ -182,7 +190,11 @@ function showSplash() {
     await setupAudio();
     await state.audio.resume();
     applySettings();
-    if (new URLSearchParams(location.search).get('intro') !== '0') await runIntro();
+    const params = new URLSearchParams(location.search);
+    // ?briefing=TERRAN03 starts that level, through its briefing, straight away.
+    const level = params.get('briefing')?.toUpperCase();
+    if (state.levels.includes(level)) { startGame(level); return; }
+    if (params.get('intro') !== '0') await runIntro();
     await enterFrontEnd();
   };
   addEventListener('keydown', go, true);
@@ -199,8 +211,8 @@ async function runIntro() {
 // The intro videos' own soundtrack (swiv-pack --anims writes it), decoded once on first use.
 let introTrack = null;
 async function introSoundtrack() {
-  if (!state.assets?.intro || !state.audio) return null;
-  introTrack ??= bytesOf(`assets/${state.assets.intro}`)
+  if (!state.assets || !state.audio) return null;
+  introTrack ??= bytesOf(`assets/${state.assets.intro ?? 'intro.mp3'}`)
     .then((b) => state.audio.decodeAudioData(b.buffer))
     .catch((e) => { console.warn('intro soundtrack', e); return null; });
   return introTrack;
@@ -251,8 +263,47 @@ async function startGame(name) {
   state.game.set_attract(false);
   state.game.set_view_distance(viewCells());
   drawMinimapBase();
-  await runBriefing(state.mapCanvas, state.game.briefing(), 'Rookie');
+  await briefing(name);
   beginPlay(name);
+}
+
+const text = (group, index, fallback = '') => state.strings.get(`${group}/${index}`) ?? fallback;
+const levelName = (name) => text(200, LEVEL_NAME_INDEX[name], 'Rookie');
+
+// The mission briefing: the level's own video soundtrack and script when swiv-pack packed
+// them, else the briefing's sound effects; the close-ups are rendered by the game itself.
+const decoded = new Map();
+function decodeAsset(file) {
+  if (!state.audio || !file) return Promise.resolve(null);
+  if (!decoded.has(file)) {
+    decoded.set(file, bytesOf(`assets/${file}`)
+      .then((b) => state.audio.decodeAudioData(b.buffer))
+      .catch((e) => { console.warn('briefing audio', file, e); return null; }));
+  }
+  return decoded.get(file);
+}
+
+async function briefing(name) {
+  const packed = state.assets?.briefings ?? {};
+  const video = packed[name];
+  const clipNames = ['grid', 'waypoint', 'screenshot', 'outro', 'hum'];
+  const [track, ...clips] = await Promise.all([decodeAsset(video?.audio), ...clipNames.map((c) => decodeAsset(packed.sounds?.[c]))]);
+  const view = $('view');
+  await runBriefing({
+    mapCanvas: state.mapCanvas,
+    points: state.game.briefing(),
+    title: levelName(name),
+    text,
+    plan: video ? { ...video, track } : null,
+    sound: state.audio ? { ctx: state.audio, out: state.sfxBus, clips: Object.fromEntries(clipNames.map((c, i) => [c, clips[i]])) } : null,
+    snapshot: (x, z, size, range) => {
+      state.game.snapshot(x, z, size, size, range);
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      c.getContext('2d').drawImage(view, 0, 0);
+      return c;
+    },
+  });
 }
 
 // ---------------------------------------------------------------- audio
@@ -434,7 +485,7 @@ function beginPlay(name) {
   state.keys = 0;
   drawMinimapBase();
   $('hud').hidden = false;
-  showBanner('Rookie', 2500);
+  showBanner(levelName(name), 2500);
   startEngine();
   playMusic(state.music.tracks.length ? store.settings.track : -1);
 }
@@ -450,7 +501,7 @@ async function nextMission(name) {
   state.game.set_attract(false);
   state.game.set_view_distance(viewCells());
   drawMinimapBase();
-  await runBriefing(state.mapCanvas, state.game.briefing(), 'Rookie');
+  await briefing(name);
   beginPlay(name);
 }
 

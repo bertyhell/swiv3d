@@ -18,8 +18,9 @@ reference for feel; the original binaries are the source of truth.
 | `crates/swiv-web` | wasm-bindgen entry point and WebGL 2 renderer |
 | `tools/swiv-extract` | CLI that dumps everything to PNG / OBJ / WAV / JSON, rips CD audio, converts Smacker videos |
 | `web/` | page, HUD, input, audio, file loading |
-| `web/frontend.js` | the original's menus (pilots, controller, main menu, setup, credits) and the mission briefing map |
-| `web/intro.js` | the opening cinematic, rebuilt in real time with three.js (vendored in `web/vendor/`, MIT) |
+| `web/frontend.js` | the original's menus (pilots, controller, main menu, setup, credits) |
+| `web/briefing.js` | the mission briefing, timed and laid out after the BR_TER* videos and their `.SCR` overlay scripts, with close-ups rendered by the game |
+| `web/intro.js` | the opening cinematic, rebuilt in real time with three.js (vendored in `web/vendor/`, MIT), shot for shot and frame-timed against INTRO1/INTRO2 |
 | `docs/formats.md` | byte-level format notes and the flight model |
 
 ## Play
@@ -30,7 +31,8 @@ Run these from this `remake/` folder:
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.100
 ./build.sh
-cargo run --release -p swiv-extract --bin swiv-pack -- "../original/SWIV 3D (1996)/SWIV3D/cd/cd/GameData" web/assets --music ../mp3
+cargo run --release -p swiv-extract --bin swiv-pack -- "../original/SWIV 3D (1996)/SWIV3D/cd/cd/GameData" web/assets --music ../mp3 \
+    --anims "../original/SWIV 3D (1996)/SWIV3D/cd/cd/Anims"
 python3 -m http.server -d web 8080
 ```
 
@@ -38,14 +40,19 @@ python3 -m http.server -d web 8080
 colour maps and its texture pages as 8-bit PNGs (indexed with the game's own palette, so they
 view correctly and keep the exact indices the renderer needs), a slim `level.bd` per level with
 the models, spawns and tables, the sound effects as WAV and the soundtrack as MP3, listed in
-`manifest.json`. Open <http://localhost:8080> and the menu comes up straight away.
+`manifest.json`. With `--anims` (needs ffmpeg) it also writes `intro.mp3`, the audio of the two
+intro videos, which the real-time intro plays in sync (without it the intro falls back to a few
+of the game's sound effects), and for each mission briefing video its soundtrack and overlay
+script under `briefing/`, plus the briefing's sound effects (grid, waypoint, close-up, outro and
+the hum under them; they are not in SOUNDS.BD) cut from BR_TER1 for the levels without a video. Open <http://localhost:8080> and the menu comes up straight away.
 
 The page opens like the original: press a key, the intro plays (any key skips; add
 `?intro=0` to the URL to leave it out), then the front end runs over a live flyover of a level
 with the menu headings in the game's 3D font: Select Pilot, New Pilot, Controller Type, Main
 Menu (Start Game, Setup, Replay Intro, Credits, New Player, Exit) and Setup (volumes, music
 track, detail level). Pilots and their campaign progress are kept in `localStorage`; Start
-Game shows the mission briefing map before each level.
+Game shows the mission briefing before each level; `?briefing=TERRAN03` (any level name) skips
+straight to that level's briefing after the first key press.
 
 Without `web/assets/` the page asks for the game instead: click **Choose game folder** and
 select the CD's `GameData` folder (or the whole CD folder). For the soundtrack, include
@@ -91,5 +98,6 @@ taking 8 hits, and the winch cable (a thin solid red line from the belly to the 
 
 Approximated (not yet decompiled function by function): enemy AI tuning, weapon damage and
 pickup effects, the buggy / ski vehicle changeovers, bosses' special patterns, the
-briefing videos (the map briefing is rebuilt, the Smacker clips are not played), weapon sprites (drawn as procedural glows until the GLOBAL.BD sprite banks
+briefing videos (rebuilt in real time on their scripts' timing with their own soundtracks; the
+map's placement and the close-up camera are approximate), weapon sprites (drawn as procedural glows until the GLOBAL.BD sprite banks
 are decoded), wreck smoke and fire, and rotor discs.

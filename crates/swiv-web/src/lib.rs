@@ -285,6 +285,41 @@ impl Game {
         self.renderer.render(pw as i32, ph as i32, &cam, &self.instances, &beams, &texts, title, self.time as f32, self.fog_far);
     }
 
+    /// A still of the level around map cell `(x, z)` for the mission briefing's close-ups,
+    /// drawn into the canvas at `w` x `h` pixels: the ground there seen from above and behind,
+    /// facing the craft's start heading, like the original's pre-rendered briefing shots.
+    /// `range` scales the camera's distance (1 frames a base; the start uses less, to show the craft).
+    /// The caller copies the canvas out (drawImage) before yielding to the browser.
+    pub fn snapshot(&mut self, x: f32, z: f32, w: u32, h: u32, range: f32) {
+        let Some(world) = &self.world else { return };
+        let (w, h) = (w.max(1), h.max(1));
+        if self.canvas.width() != w || self.canvas.height() != h {
+            self.canvas.set_width(w);
+            self.canvas.set_height(h);
+        }
+        let target = [(x * 16384.0) as i32, 0, (z * 16384.0) as i32];
+        let ground = world.terrain.height(target[0], target[2]);
+        let yaw = world.player.yaw as f32;
+        let a = yaw * std::f32::consts::TAU / 512.0;
+        let (back, up) = (560.0 * 256.0 * range, 330.0 * 256.0 * range);
+        let mut cam_pos = [target[0] - (a.sin() * back) as i32, ground + up as i32, target[2] - (a.cos() * back) as i32];
+        // Rise until the view of the place clears the ground in between.
+        for k in 0..=12 {
+            let f = k as f32 / 12.0;
+            let (px, pz) = (cam_pos[0] + ((target[0] - cam_pos[0]) as f32 * f) as i32, cam_pos[2] + ((target[2] - cam_pos[2]) as f32 * f) as i32);
+            let clear = world.terrain.height(px, pz) + 24 * 256;
+            if f < 1.0 {
+                // The sight line at f is ground + (cam - ground) * (1 - f); it must pass `clear`.
+                let need = ground + ((clear - ground) as f32 / (1.0 - f)) as i32;
+                cam_pos[1] = cam_pos[1].max(need.min(ground + (up * 3.0) as i32));
+            }
+        }
+        let pitch = ((cam_pos[1] - ground) as f32).atan2(back);
+        let cam = Camera { pos: cam_pos, yaw, pitch, fov: 0.95 };
+        world.instances(&mut self.instances);
+        self.renderer.render(w as i32, h as i32, &cam, &self.instances, &[], &[], None, self.time as f32, self.fog_far);
+    }
+
     /// Event codes produced since the last call.
     pub fn take_events(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.events)
