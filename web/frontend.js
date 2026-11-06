@@ -312,10 +312,11 @@ export function createFrontEnd(api) {
 // ------------------------------------------------------------ briefing
 
 /**
- * The mission briefing: the level's colour map on a dark grid, with the start and each
- * objective marked, labelled and shown in a framed close-up, one after another; "North" and
- * "Objective Guide" point at the map globe; difficulty bottom right. Resolves on any key or
- * when it has run its course.
+ * The mission briefing, timed after the original BR_TER* videos: a push into the cockpit's map
+ * monitor, the level's colour map spinning up onto a dark grid, the start and each objective
+ * flashed, marked and shown in a framed close-up one after another, then the map globe with
+ * "North" and "Objective Guide"; difficulty bottom right. Resolves on any key or when it has
+ * run its course.
  */
 export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
   return new Promise((resolve) => {
@@ -331,7 +332,7 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
       groups.get(g).push([points[i], points[i + 1]]);
     }
     const order = [...groups.keys()].sort((a, b) => a - b);
-    const marks = [{ x: start.x, z: start.z, label: 'Start', colour: '#8f8fff', frame: '#9a9aff' }];
+    const marks = [{ x: start.x, z: start.z, label: 'Start', colour: '#9a9aff', frame: '#a0a0ff' }];
     order.forEach((g, k) => {
       const pts = groups.get(g);
       // Wrap-aware centroid relative to the first point.
@@ -341,8 +342,18 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
       const z = z0 + pts.reduce((s, [, z]) => s + w(z - z0), 0) / pts.length;
       marks.push({ x: (x + 512) % 512, z: (z + 512) % 512, label: k === order.length - 1 ? 'Final Objective' : `Objective ${k + 1}`, colour: '#ff1c14', frame: '#e01a12' });
     });
-    const STEP = 1.1;
-    const total = 1.4 + marks.length * STEP + 3.2;
+
+    // Timeline after the original BR_TER*.SMK briefings (seconds):
+    //   0.0-3.8  the camera dollies into the cockpit's map monitor until its black screen fills the view
+    //   4.0-6.0  the map spins up out of the dark from a small tilted diamond; the grid fades in
+    //   then per marker: a flash and the dot, ~1 s later its framed close-up wipes in, ~4 s apart
+    //   the map globe top left flashes in, everything holds, then the close-ups wipe away in
+    //   reverse, the grid fades and the view plunges into the map.
+    const MAP_IN = 4.0, MAP_SET = 6.0, FIRST = 6.25, STEP = 3.6, INSET = 1.0;
+    const globeAt = FIRST + marks.length * STEP - 1.2;
+    const outAt = globeAt + 5.5;
+    const plungeAt = outAt + 1.6;
+    const total = plungeAt + 1.2;
     const t0 = performance.now();
     let done = false;
     const end = () => {
@@ -355,6 +366,81 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
     };
     const key = (e) => { e.preventDefault?.(); e.stopPropagation?.(); end(); };
     setTimeout(() => { addEventListener('keydown', key, true); wrap.addEventListener('pointerdown', key); }, 250);
+
+    const span01 = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
+    const easeInOut = (t) => t * t * (3 - 2 * t);
+    const easeOut = (t) => 1 - (1 - t) ** 3;
+    const M = 370; // map size on screen, in the 640x400 frame
+    const cx = 320, cy = 205;
+    const toScreen = (m) => [cx - M / 2 + m.x / 512 * M, cy - M / 2 + m.z / 512 * M];
+
+    // Close-up frames sit beside their marker, kept clear of each other and the globe.
+    const FW = 132, FH = 110;
+    const placed = [{ x: 30, y: 20, w: 110, h: 90 }];
+    const overlap = (a, b) => a.x < b.x + b.w + 6 && b.x < a.x + a.w + 6 && a.y < b.y + b.h + 6 && b.y < a.y + a.h + 6;
+    marks.forEach((m) => {
+      const [x, y] = toScreen(m);
+      const cands = [];
+      for (const side of [x < cx ? -1 : 1, x < cx ? 1 : -1]) {
+        for (const dy of [-FH / 2, -FH - 4, 8, -FH * 0.2]) {
+          const fx = side < 0 ? x - FW - 18 : x + 18;
+          cands.push({ x: Math.max(6, Math.min(640 - FW - 6, fx)), y: Math.max(8, Math.min(392 - FH, y + dy)), w: FW, h: FH });
+        }
+      }
+      m.box = cands.find((b) => !placed.some((p) => overlap(p, b))) ?? cands[0];
+      placed.push(m.box);
+    });
+
+    function cockpit(g, t) {
+      // A dark instrument panel around the map monitor; the camera pushes in on the screen.
+      const k = easeInOut(span01(t, 0, 3.6));
+      const z = 1 + k * 3.4;
+      const fx = 300, fy = 160;
+      g.save();
+      g.translate(fx, fy);
+      g.scale(z, z);
+      g.translate(-fx, -fy);
+      const bg = g.createLinearGradient(0, 0, 0, 400);
+      bg.addColorStop(0, '#141a17'); bg.addColorStop(1, '#0b0f0d');
+      g.fillStyle = bg;
+      g.fillRect(-200, -200, 1040, 800);
+      // Upper-right auxiliary display, glowing pale green.
+      g.fillStyle = '#56624a';
+      g.beginPath(); g.roundRect(430, 20, 140, 110, 10); g.fill();
+      g.fillStyle = 'rgba(160,190,120,0.25)';
+      g.fillRect(440, 30, 120, 90);
+      // Side switch columns and round gauges.
+      const lamp = (x, y, w, h, col, glow = 8) => {
+        g.shadowColor = col; g.shadowBlur = glow; g.fillStyle = col; g.fillRect(x, y, w, h); g.shadowBlur = 0;
+      };
+      for (let i = 0; i < 6; i++) {
+        lamp(150, 120 + i * 30, 6, 10, i % 3 === 0 ? '#ff6020' : '#c03020', 4);
+        g.fillStyle = '#2a3330';
+        g.beginPath(); g.arc(250 + i * 50, 340, 16, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#4a5550'; g.lineWidth = 2; g.stroke();
+      }
+      lamp(410, 190, 18, 14, '#ff4a50'); lamp(440, 190, 18, 14, '#ffd040');
+      lamp(410, 340, 22, 14, '#ff8a90'); lamp(440, 350, 18, 14, '#ffd040');
+      lamp(335, 300, 7, 7, '#30ff60'); lamp(190, 310, 7, 7, '#30ff60');
+      g.fillStyle = '#ff7a20';
+      for (const [x, y] of [[420, 250], [455, 265], [470, 300]]) {
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + 8, y); g.lineTo(x + 4, y + 12); g.fill();
+      }
+      // The map monitor: thick rounded bezel, dead black glass with a faint sheen.
+      g.fillStyle = '#3c4440';
+      g.beginPath(); g.roundRect(196, 66, 208, 188, 34); g.fill();
+      const bz = g.createLinearGradient(196, 66, 404, 254);
+      bz.addColorStop(0, '#8a948f'); bz.addColorStop(0.5, '#454d49'); bz.addColorStop(1, '#22282a');
+      g.strokeStyle = bz; g.lineWidth = 8; g.stroke();
+      g.fillStyle = '#020303';
+      g.beginPath(); g.roundRect(212, 82, 176, 156, 24); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.035)';
+      g.beginPath(); g.ellipse(270, 110, 60, 22, -0.3, 0, Math.PI * 2); g.fill();
+      g.restore();
+      // Fade to black as the glass fills the frame.
+      g.fillStyle = `rgba(0,0,0,${span01(t, 2.6, 3.8)})`;
+      g.fillRect(0, 0, 640, 400);
+    }
 
     function draw(now) {
       if (done) return;
@@ -371,71 +457,145 @@ export function runBriefing(mapCanvas, points, difficulty = 'Rookie') {
       g.save();
       g.translate((W - 640 * s) / 2, (H - 400 * s) / 2);
       g.scale(s, s);
-      g.strokeStyle = 'rgba(120, 160, 40, 0.35)';
-      g.lineWidth = 1;
-      for (let x = 10; x < 640; x += 40) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 400); g.stroke(); }
-      for (let y = 10; y < 400; y += 40) { g.beginPath(); g.moveTo(0, y); g.lineTo(640, y); g.stroke(); }
-      // The map swings in flat from a tilted diamond.
-      const intro = Math.min(1, t / 1.3);
-      const e = 1 - (1 - intro) ** 3;
-      const M = 300; // map size on screen
-      const cx = 320, cy = 200;
+      g.beginPath(); g.rect(0, 0, 640, 400); g.clip();
+
+      if (t < MAP_IN) {
+        cockpit(g, t);
+        g.restore();
+        requestAnimationFrame(draw);
+        return;
+      }
+
+      // The plunge at the end: zoom into the map around the first objective.
+      const pk = easeInOut(span01(t, plungeAt, total));
+      const focus = toScreen(marks[1] ?? marks[0]);
+      if (pk > 0) {
+        const z = 1 + pk * 4;
+        g.translate(focus[0], focus[1]);
+        g.scale(z, z);
+        g.translate(-focus[0], -focus[1]);
+      }
+
+      // Grid, fading in as the map settles and out before the plunge.
+      const gridA = span01(t, MAP_IN + 0.9, MAP_SET) * (1 - span01(t, outAt + 0.8, plungeAt));
+      if (gridA > 0) {
+        g.strokeStyle = `rgba(110, 150, 30, ${0.45 * gridA})`;
+        g.lineWidth = 1;
+        for (let x = 0.5; x < 640; x += 40) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 400); g.stroke(); }
+        for (let y = 0.5; y < 400; y += 40) { g.beginPath(); g.moveTo(0, y); g.lineTo(640, y); g.stroke(); }
+      }
+
+      // The map spins up from a small tilted diamond.
+      const e = easeOut(span01(t, MAP_IN, MAP_SET));
       g.save();
       g.translate(cx, cy);
-      g.rotate((1 - e) * 0.785);
-      g.scale(1, 1 - (1 - e) * 0.45);
-      g.globalAlpha = 0.25 + 0.75 * e;
+      g.rotate((1 - e) * -0.9);
+      g.scale(0.22 + 0.78 * e, (0.22 + 0.78 * e) * (1 - (1 - e) * 0.25));
+      g.globalAlpha = Math.min(1, span01(t, MAP_IN, MAP_IN + 0.8));
       g.imageSmoothingEnabled = true;
       g.drawImage(mapCanvas, -M / 2, -M / 2, M, M);
-      // Dim the edges into the dark.
-      const v = g.createRadialGradient(0, 0, M * 0.35, 0, 0, M * 0.75);
+      // Soft edges into the dark.
+      const v = g.createRadialGradient(0, 0, M * 0.32, 0, 0, M * 0.72);
       v.addColorStop(0, 'rgba(0,0,0,0)');
-      v.addColorStop(1, 'rgba(0,0,0,0.85)');
+      v.addColorStop(1, 'rgba(0,0,0,0.95)');
       g.fillStyle = v;
-      g.fillRect(-M / 2, -M / 2, M, M);
+      g.fillRect(-M / 2 - 1, -M / 2 - 1, M + 2, M + 2);
       g.restore();
       g.globalAlpha = 1;
-      const toScreen = (m) => [cx - M / 2 + m.x / 512 * M, cy - M / 2 + m.z / 512 * M];
+
       g.font = 'italic 900 15px "Arial Black", Arial, sans-serif';
       g.textBaseline = 'middle';
-      const outlined = (text, x, y, align = 'left', colour = '#fff') => {
+      const outlined = (text, x, y, align = 'left', colour = '#fff', alpha = 1) => {
+        g.globalAlpha = alpha;
         g.textAlign = align;
         g.lineWidth = 3;
         g.strokeStyle = '#000';
         g.strokeText(text, x, y);
         g.fillStyle = colour;
         g.fillText(text, x, y);
+        g.globalAlpha = 1;
       };
+      const flash = (x, y, a, r) => {
+        if (a <= 0 || a >= 1) return;
+        const f = g.createRadialGradient(x, y, 0, x, y, r);
+        const k = Math.sin(a * Math.PI);
+        f.addColorStop(0, `rgba(255,255,230,${0.95 * k})`);
+        f.addColorStop(0.4, `rgba(220,255,160,${0.5 * k})`);
+        f.addColorStop(1, 'rgba(160,255,80,0)');
+        g.fillStyle = f;
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      };
+
+      const n = marks.length;
       marks.forEach((m, k) => {
-        const a = t - 1.4 - k * STEP;
+        const a = t - FIRST - k * STEP;
         if (a < 0) return;
         const [x, y] = toScreen(m);
+        // Close-ups leave in reverse order, a few tenths apart; the dots stay.
+        const gone = span01(t, outAt + (n - 1 - k) * 0.35, outAt + (n - 1 - k) * 0.35 + 0.4);
+        const wipe = span01(a, INSET, INSET + 0.45) * (1 - gone);
+        if (wipe > 0) {
+          const b = m.box;
+          g.save();
+          g.beginPath(); g.rect(b.x - 2, b.y - 2, b.w + 4, (b.h + 4) * wipe); g.clip();
+          // A tighter, sharper view of the ground around the marker.
+          const zoom = 44;
+          g.imageSmoothingEnabled = true;
+          const sx = ((m.x - zoom / 2) % 512 + 512) % 512, sz = ((m.z - zoom * 0.42) % 512 + 512) % 512;
+          g.drawImage(mapCanvas, sx, sz, Math.min(zoom, 512 - sx), Math.min(zoom * 0.83, 512 - sz), b.x, b.y, b.w, b.h);
+          const sh = g.createLinearGradient(0, b.y, 0, b.y + b.h);
+          sh.addColorStop(0, 'rgba(0,0,0,0.35)'); sh.addColorStop(0.35, 'rgba(0,0,0,0)');
+          g.fillStyle = sh; g.fillRect(b.x, b.y, b.w, b.h);
+          g.strokeStyle = m.frame;
+          g.lineWidth = 2;
+          g.strokeRect(b.x, b.y, b.w, b.h);
+          g.restore();
+          const lx = b.x + b.w / 2;
+          const ly = b.y + b.h + 12 > 396 ? b.y - 10 : b.y + b.h + 12;
+          outlined(m.label, lx, ly, 'center', '#fff', wipe);
+        }
+        flash(x, y, a / 0.6, 34);
         g.fillStyle = m.colour;
-        g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill();
-        // Close-up of the area in a frame, off to one side.
-        const side = x < cx ? -1 : 1;
-        const fw = 120, fh = 92;
-        const fx = side < 0 ? Math.max(8, x - fw - 30) : Math.min(640 - fw - 8, x + 30);
-        const fy = Math.max(12, Math.min(400 - fh - 40, y - fh - 10 + (k % 2) * (fh + 20)));
-        const grow = Math.min(1, a / 0.35);
-        g.save();
-        g.globalAlpha = grow;
-        const zoom = 40;
-        g.imageSmoothingEnabled = false;
-        const sx = ((m.x - zoom / 2) % 512 + 512) % 512, sz = ((m.z - zoom * 0.38) % 512 + 512) % 512;
-        g.drawImage(mapCanvas, sx, sz, Math.min(zoom, 512 - sx), Math.min(zoom * 0.77, 512 - sz), fx, fy, fw, fh);
-        g.strokeStyle = m.frame;
-        g.lineWidth = 2;
-        g.strokeRect(fx, fy, fw, fh);
-        g.restore();
-        outlined(m.label, side < 0 ? x - 12 : x + 12, y + 16, side < 0 ? 'right' : 'left');
+        g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
       });
-      const late = t - 1.4 - marks.length * STEP;
-      if (late > -1) outlined('North', 30, 18);
-      if (late > 0) outlined('Objective Guide', 30, 48);
+
+      // The map globe, top left: the whole terrain on a chrome-ringed lens.
+      const ga = t - globeAt;
+      if (ga > 0) {
+        const gx = 85, gy = 62, gr = 38;
+        const gs = easeOut(span01(ga, 0, 0.4));
+        g.save();
+        g.translate(gx, gy);
+        g.scale(gs, gs);
+        const ring = g.createLinearGradient(-gr, -gr, gr, gr);
+        ring.addColorStop(0, '#f0f0f0'); ring.addColorStop(0.5, '#7a7a7a'); ring.addColorStop(1, '#d0d0d0');
+        g.fillStyle = ring;
+        g.beginPath(); g.roundRect(-gr - 6, -gr - 2, (gr + 6) * 2, (gr + 2) * 2, 26); g.fill();
+        g.save();
+        g.beginPath(); g.roundRect(-gr + 2, -gr + 4, (gr - 2) * 2, (gr - 4) * 2, 18); g.clip();
+        g.drawImage(mapCanvas, -gr, -gr, gr * 2, gr * 2);
+        const lens = g.createRadialGradient(-10, -12, 4, 0, 0, gr * 1.2);
+        lens.addColorStop(0, 'rgba(255,255,255,0.25)'); lens.addColorStop(1, 'rgba(0,0,0,0.45)');
+        g.fillStyle = lens; g.fillRect(-gr, -gr, gr * 2, gr * 2);
+        g.restore();
+        g.fillStyle = '#222';
+        g.beginPath(); g.moveTo(-6, -gr + 2); g.lineTo(6, -gr + 2); g.lineTo(0, -gr - 6); g.fill();
+        g.restore();
+        flash(gx, gy, ga / 0.6, 60);
+        flash(gx, gy, (ga - 3.5) / 0.6, 60);
+        const la = span01(ga, 0.5, 0.9) * (1 - span01(t, outAt + 0.8, plungeAt));
+        outlined('North', gx + 52, gy - 22, 'left', '#fff', la);
+        outlined('Objective Guide', gx + 52, gy + 4, 'left', '#fff', span01(ga, 1.2, 1.6) * (1 - span01(t, outAt + 0.8, plungeAt)));
+      }
+
       g.font = 'italic 900 13px "Arial Black", Arial, sans-serif';
-      outlined(difficulty, 620, 382, 'right', '#c8c8c8');
+      outlined(difficulty, 620, 384, 'right', '#c8c8c8', span01(t, MAP_SET, MAP_SET + 0.5) * (1 - pk));
+      // Out to black on the plunge.
       g.restore();
+      if (pk > 0.6) {
+        g.fillStyle = `rgba(0,0,0,${(pk - 0.6) / 0.4})`;
+        g.fillRect(0, 0, W, H);
+      }
       requestAnimationFrame(draw);
     }
     requestAnimationFrame(draw);

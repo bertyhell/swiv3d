@@ -233,6 +233,7 @@ function uiClick() {
 async function startGame(name) {
   state.frontEnd.hide();
   state.mode = 'briefing';
+  playMusic(-1);
   state.running = false;
   state.carry = null;
   await loadLevel(name);
@@ -381,6 +382,8 @@ function wavHeader(bytes) {
 
 function playMusic(index) {
   const el = state.music.el;
+  // The intro and the briefings run silent of CD music, like the original.
+  if (state.mode === 'intro' || state.mode === 'briefing') index = -1;
   const t = state.music.tracks[index];
   state.music.index = index;
   if (!t || store.settings.music === 0) {
@@ -426,6 +429,7 @@ function beginPlay(name) {
 // Next mission after one is complete: through its briefing, keeping score and weapons.
 async function nextMission(name) {
   state.mode = 'briefing';
+  playMusic(-1);
   state.running = false;
   stopEngine();
   $('hud').hidden = true;
