@@ -51,6 +51,10 @@ pub const SPECIAL_COUNT: usize = 20;
 const PICKUP_HEALTH_10: i32 = 100;
 const PICKUP_HEALTH_25: i32 = 101;
 const PICKUP_HEALTH_MEGA: i32 = 102;
+const PICKUP_SHIELD: i32 = 107;
+/// The shield orbits the craft until it has soaked up this much health damage.
+const SHIELD_DAMAGE: i32 = 25;
+const SHIELD_MODEL: i32 = 853;
 const PICKUP_POWER_UP: std::ops::RangeInclusive<i32> = 110..=113;
 /// The gun fires in bursts of two pulses, "one, two, pause": `PULSE_GAP` ticks between the
 /// two pulses, `BURST_PERIOD` from burst to burst. Measured on the original running in
@@ -286,6 +290,10 @@ pub struct World {
     pub score: i32,
     /// Primary gun power (Power Up pickups): 1 + level energy pulses per shot.
     pub weapon_level: i32,
+    /// Damage the orbiting shield can still take before it wears off (0 = no shield).
+    pub shield: i32,
+    /// Orbit angle of the shield around the craft.
+    pub shield_angle: i32,
     /// Special weapon ammo per kind, and the selected kind (None = empty).
     pub ammo: [i32; SPECIAL_COUNT],
     pub special: Option<usize>,
@@ -298,6 +306,9 @@ pub struct World {
     pub phase_timer: i32,
     pub objectives_total: [u16; 10],
     pub objectives_left: [u16; 10],
+    /// The objective group the player last destroyed a target of; the HUD follows it while it
+    /// has targets left, so groups taken out of order still count up.
+    objective_focus: Option<u8>,
     pub events: Vec<Event>,
     pub max_height: i32,
     pub target: Option<usize>,
@@ -404,9 +415,11 @@ impl World {
             player: Heli::new([0; 3], 0),
             start: ([0; 3], 0),
             health: 100,
-            lives: 3,
+            lives: 1,
             score: 0,
             weapon_level: 0,
+            shield: 0,
+            shield_angle: 0,
             ammo: [0; SPECIAL_COUNT],
             special: None,
             fire_cooldown: 0,
@@ -417,6 +430,7 @@ impl World {
             phase_timer: 0,
             objectives_total: [0; 10],
             objectives_left: [0; 10],
+            objective_focus: None,
             events: Vec::new(),
             max_height: 255 << HEIGHT_SHIFT,
             target: None,
@@ -542,11 +556,14 @@ impl World {
         let y = self.terrain.height(x, z) + ((crate::heli::HOVER) << 8);
         self.player = Heli::new([x, y, z], yaw);
         self.health = 100;
+        self.shield = 0;
         self.phase = Phase::Playing;
     }
 
     pub fn current_objective(&self) -> Option<u8> {
-        (0..10u8).find(|&g| self.objectives_left[g as usize] > 0)
+        self.objective_focus
+            .filter(|&g| self.objectives_left[g as usize] > 0)
+            .or_else(|| (0..10u8).find(|&g| self.objectives_left[g as usize] > 0))
     }
 
     pub fn step(&mut self, input: &Input) {
@@ -575,6 +592,9 @@ impl World {
             }
             Phase::Complete | Phase::GameOver => {}
         }
+        if self.shield > 0 {
+            self.shield_angle = (self.shield_angle + 8) & trig::ANGLE_MASK;
+        }
         self.update_entities();
         self.update_projectiles();
         self.update_effects();
@@ -586,6 +606,7 @@ impl World {
             return;
         }
         self.health -= dmg;
+        self.shield = (self.shield - dmg).max(0);
         self.events.push(Event::PlayerHit);
         if self.health <= 0 {
             self.lives -= 1;
@@ -888,7 +909,9 @@ impl World {
         if let Some(g) = obj {
             let left = &mut self.objectives_left[g as usize];
             *left = left.saturating_sub(1);
-            if *left == 0 {
+            let done = *left == 0;
+            self.objective_focus = Some(g);
+            if done {
                 self.events.push(Event::ObjectiveDone(g));
                 if self.current_objective().is_none() && self.phase == Phase::Playing {
                     self.phase = Phase::Complete;
@@ -1291,7 +1314,8 @@ impl World {
             PICKUP_HEALTH_25 => self.health = (self.health + 25).min(100),
             PICKUP_HEALTH_MEGA => self.health = 100,
             c if PICKUP_POWER_UP.contains(&c) => self.weapon_level = (self.weapon_level + 1).min(3),
-            // Shield and the buddy drones are not modelled yet.
+            PICKUP_SHIELD => self.shield = SHIELD_DAMAGE,
+            // The buddy drones are not modelled yet.
             _ => self.score += 500,
         }
         self.events.push(Event::Pickup(code));
@@ -1439,6 +1463,11 @@ impl World {
                 charred: false,
                 alpha: 255,
             });
+            if self.shield > 0 {
+                // The shield model is already a ring of pods around its origin: centre it on
+                // the craft and spin it in place.
+                out.push(mk(SHIELD_MODEL, self.player.pos, self.shield_angle, 256, false));
+            }
         }
         if let Some(t) = self.target.and_then(|i| self.entities.get(i)).filter(|e| e.alive) {
             // Lock-on ring sized to the target; scale 256 = 12 model units across.

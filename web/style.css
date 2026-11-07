@@ -127,14 +127,6 @@ code, kbd { font-family: var(--mono); font-size: 0.92em; color: var(--accent); }
 #special-count { font-size: 22px; }
 #score-block { position: absolute; right: 18px; bottom: 12px; text-align: right; }
 #score { letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
-#lives { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 2px; }
-#lives span {
-  width: 14px;
-  height: 14px;
-  background: #fff;
-  clip-path: polygon(50% 0, 62% 38%, 100% 46%, 62% 60%, 56% 100%, 44% 100%, 38% 60%, 0 46%, 38% 38%);
-  filter: drop-shadow(1px 1px 0 #000);
-}
 #minimap {
   position: absolute;
   left: 50%;

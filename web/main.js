@@ -553,8 +553,11 @@ function handleEvents(events) {
       }, 4000);
     }
     if (e === 10) {
-      showBanner('GAME OVER', 0);
-      setTimeout(toMenu, 4000);
+      // One life: when health runs out, the level restarts with what you had when it began.
+      showBanner('TRY AGAIN', 2500);
+      state.game.restart_level();
+      if (state.carry) state.game.carry_over(...state.carry);
+      state.hudStart = null;
     }
   }
 }
@@ -564,11 +567,8 @@ function pickupName(index) {
 }
 
 function updateHud(h) {
-  const [score, lives, health, special, ammo, , obj, left, total, phase, speed] = h;
+  const [score, , health, special, ammo, , obj, left, total, phase, speed] = h;
   $('score').textContent = String(Math.max(0, score)).padStart(7, '0');
-  if ($('lives').childElementCount !== lives) {
-    $('lives').replaceChildren(...Array.from({ length: Math.max(0, lives) }, () => document.createElement('span')));
-  }
   // Energy fills the slanted window (left edge y 16..87, right edge 13..84) from the bottom, its top
   // edge parallel to the window's. At the start of a game it charges up from empty over ~1.2 s.
   state.hudStart ??= performance.now();
