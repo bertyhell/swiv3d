@@ -152,6 +152,23 @@ function plate(points, t = 0.08, bevel = 0.02) {
   return g;
 }
 
+/**
+ * Corrugated sheet: pushes each vertex out along `dir(x, y, z)` (a unit offset direction) by a
+ * rounded sine wave of the coordinate `along(x, y, z)`, then re-derives normals so the ridges
+ * catch the light like the wavy steel cladding on old hangars.
+ */
+function corrugate(geo, pitch, depth, along, dir) {
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const d = depth * Math.sin(along(x, y, z) / pitch * Math.PI * 2);
+    const [dx, dy, dz] = dir(x, y, z);
+    p.setXYZ(i, x + dx * d, y + dy * d, z + dz * d);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
 /** Panel lines and rivet grime over a base colour, for hull skins. */
 export function panelTexture(base, { cols = 6, rows = 4, line = 'rgba(0,0,0,0.55)', repeat = [1, 1] } = {}) {
   return canvasTexture(256, 256, (g, w, h) => {
@@ -191,13 +208,31 @@ function wheel(r = 0.18, w = 0.12) {
 
 // ------------------------------------------------------------------ textures
 
-const fenceTex = canvasTexture(64, 64, (g, w, h) => {
+/**
+ * One chain-link diamond: round galvanised wire (dark edge, bright core) zig-zagging down,
+ * with the neighbouring wires hooked round each other at the left and right corners.
+ */
+const fenceTex = canvasTexture(128, 128, (g, w, h) => {
   g.clearRect(0, 0, w, h);
-  g.strokeStyle = 'rgba(150,154,160,1)';
-  g.lineWidth = 2.5;
-  g.beginPath();
-  g.moveTo(0, h / 2); g.lineTo(w / 2, 0); g.lineTo(w, h / 2); g.lineTo(w / 2, h); g.closePath();
-  g.stroke();
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const wire = (path) => {
+    for (const [lw, col] of [[7, 'rgba(70,74,80,1)'], [4.5, 'rgba(150,155,162,1)'], [1.6, 'rgba(225,230,236,1)']]) {
+      g.lineWidth = lw; g.strokeStyle = col; path(); g.stroke();
+    }
+  };
+  // The four sides, slightly wavy as stretched wire is, stopping short of the hooked corners.
+  const side = (x0, y0, x1, y1) => () => {
+    g.beginPath(); g.moveTo(x0, y0);
+    g.quadraticCurveTo((x0 + x1) / 2 + (y1 - y0) * 0.05, (y0 + y1) / 2 - (x1 - x0) * 0.05, x1, y1);
+  };
+  const m = 5;
+  wire(side(m, h / 2 - m, w / 2, 0)); wire(side(w / 2, 0, w - m, h / 2 - m));
+  wire(side(m, h / 2 + m, w / 2, h)); wire(side(w / 2, h, w - m, h / 2 + m));
+  // Hooks: each wire bends round its neighbour in a tight loop at the side corners.
+  for (const cx of [0, w]) {
+    wire(() => { g.beginPath(); g.moveTo(cx - m, h / 2 - m); g.bezierCurveTo(cx + 4, h / 2 - 6, cx + 5, h / 2 + 2, cx - 1, h / 2 + 3); });
+    wire(() => { g.beginPath(); g.moveTo(cx + m, h / 2 + m); g.bezierCurveTo(cx - 4, h / 2 + 6, cx - 5, h / 2 - 2, cx + 1, h / 2 - 3); });
+  }
 });
 
 /** Soft blotches and drips, for anything that should look used. */
@@ -206,6 +241,60 @@ const grimeTex = canvasTexture(128, 256, (g, w, h) => {
   for (let i = 0; i < 160; i++) {
     g.fillStyle = `rgba(60,55,40,${rand() * 0.12})`;
     g.fillRect(rand() * w, rand() * h, 1 + rand() * 4, 2 + rand() * 10);
+  }
+});
+
+/**
+ * Corrosion relief for old sheet steel (a bump map, tiling): mid grey with raised rust
+ * blisters, scabby flakes and pinhole pits. Drawn wrapped so it tiles without seams.
+ */
+const rustBumpTex = canvasTexture(256, 256, (g, w, h) => {
+  const r = seeded(404);
+  g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, w, h);
+  const wrapped = (x, y, rad, fn) => { for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) if (x + dx > -rad && x + dx < w + rad && y + dy > -rad && y + dy < h + rad) fn(x + dx, y + dy); };
+  // Clusters of blisters: corrosion spreads in patches, not evenly.
+  for (let c = 0; c < 9; c++) {
+    const cx = r() * w, cy = r() * h, spread = 15 + r() * 40;
+    for (let i = 0; i < 40; i++) {
+      const x = cx + (r() - 0.5) * spread * 2, y = cy + (r() - 0.5) * spread * 2, rad = 1.5 + r() * 6;
+      wrapped(x, y, rad, (px, py) => {
+        const grd = g.createRadialGradient(px, py, 0, px, py, rad);
+        grd.addColorStop(0, `rgba(255,255,255,${0.35 + r() * 0.4})`); grd.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = grd; g.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+      });
+    }
+  }
+  // Flaking scabs: irregular raised plates with a sharp edge.
+  for (let i = 0; i < 26; i++) {
+    const x = r() * w, y = r() * h, rad = 3 + r() * 9;
+    wrapped(x, y, rad * 1.5, (px, py) => {
+      g.fillStyle = `rgba(${r() < 0.5 ? '200,200,200' : '70,70,70'},0.5)`;
+      g.beginPath();
+      for (let k = 0; k < 7; k++) { const a = k / 7 * Math.PI * 2, rr = rad * (0.5 + r() * 0.7); g.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); }
+      g.fill();
+    });
+  }
+  // Pinhole pits everywhere.
+  for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(0,0,0,${0.2 + r() * 0.4})`; const sz = 1 + r() * 1.6; g.fillRect(r() * w, r() * h, sz, sz); }
+}, { srgb: false });
+
+/** Weathered galvanising for hangar skins: grime streaks running down, with rust bleeding through in patches. */
+const rustSkinTex = canvasTexture(256, 256, (g, w, h) => {
+  const r = seeded(405);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
+  for (let c = 0; c < 9; c++) {
+    const x = r() * w, y = r() * h, rad = 12 + r() * 36;
+    for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) {
+      const grd = g.createRadialGradient(x + dx, y + dy, 0, x + dx, y + dy, rad);
+      grd.addColorStop(0, `rgba(150,82,40,${0.35 + r() * 0.3})`); grd.addColorStop(1, 'rgba(150,82,40,0)');
+      g.fillStyle = grd; g.fillRect(x + dx - rad, y + dy - rad, rad * 2, rad * 2);
+    }
+  }
+  for (let i = 0; i < 220; i++) {
+    g.fillStyle = r() < 0.3 ? `rgba(130,70,30,${r() * 0.25})` : `rgba(60,55,40,${r() * 0.14})`;
+    const x = r() * w, y = r() * h, len = 10 + r() * 70;
+    g.fillRect(x, y, 1 + r() * 2.5, len);
+    if (y + len > h) g.fillRect(x, y - h, 1 + r() * 2.5, len);
   }
 });
 
@@ -391,40 +480,40 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   const hull = new THREE.MeshStandardMaterial({ color, map: tex, roughness, metalness });
   const dark = new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.55, metalness: 0.5 });
   const black = metal(0x0c0d0f, 0.7, 0.3);
+  // A boxy airframe: near-square sections (high superellipse exponent) whose top and bottom
+  // lines run straight between stations, so the windscreen and sides come out as flat panes.
+  const box = (z, w, bot, top, n = 4.6) => ({ z, w, y: (top + bot) / 2, h: (top - bot) / 2, n });
   const fuselage = [
-    { z: 3.2, w: 0.02, h: 0.02, y: -0.2, n: 2 },
-    { z: 3.15, w: 0.24, h: 0.22, y: -0.2, n: 2 },
-    { z: 3.0, w: 0.55, h: 0.5, y: -0.2, n: 2.2 + square },
-    { z: 2.6, w: 0.86, h: 0.78, y: -0.1, n: 2.4 + square },
-    { z: 1.7, w: 1.02, h: 0.95, y: 0.0, n: 2.7 + square },
-    { z: 0.3, w: 1.05, h: 1.0, y: 0.05, n: 2.9 + square },
-    { z: -1.0, w: 0.95, h: 0.9, y: 0.12, n: 2.7 },
-    { z: -2.0, w: 0.5, h: 0.5, y: 0.4, n: 2.4 },
-    { z: -5.4, w: 0.19, h: 0.21, y: 0.66, n: 2.2 },
-    { z: -6.05, w: 0.13, h: 0.17, y: 0.76, n: 2.2 },
+    box(3.3, 0.5, -0.78, -0.2, 4),
+    box(3.0, 0.8, -0.9, -0.15),
+    box(1.9, 1.0, -0.98, 0.95),
+    box(0.3, 1.05, -0.98, 1.02),
+    box(-1.0, 0.95, -0.8, 1.02),
+    box(-2.0, 0.5, -0.1, 0.9, 4),
+    box(-5.4, 0.19, 0.48, 0.86, 3.4),
+    box(-6.05, 0.13, 0.6, 0.94, 3.4),
   ];
-  g.add(new THREE.Mesh(loft(fuselage, 36), hull));
-  // Windscreen: the upper half of the nose in glass, standing just proud of the skin.
+  g.add(new THREE.Mesh(loft(fuselage, 40), hull));
+  // Glazing: the sloped flat windscreen and the side windows back to the cabin, standing just
+  // proud of the skin.
   const gm = glassMat();
   if (glassOpts) Object.assign(gm, glassOpts);
-  const glass = new THREE.Mesh(loft(fuselage.slice(0, 6).map((s) => ({ ...s, w: s.w * 1.025, h: s.h * 1.03, bot: 0.02 })), 30), gm);
-  glass.scale.z = 0.999;
+  const canopy = [fuselage[1], fuselage[2], box(1.0, 1.02, -0.98, 0.98)];
+  const glass = new THREE.Mesh(loft(canopy.map((c) => ({ ...c, w: c.w * 1.02, h: c.h * 1.02, bot: 0.02 })), 40), gm);
   g.add(glass);
-  // A skin band over the glass splits it into windscreen and side windows.
+  // Frame bars: the windscreen's top edge and the posts between windscreen and side windows.
   const frameMat = dark;
-  for (const z of [2.25, 1.35]) {
-    const r = new THREE.Mesh(new THREE.TorusGeometry(1, 0.025, 6, 24, Math.PI), frameMat);
-    const s = fuselage[z > 2 ? 3 : 4];
-    r.scale.set(s.w * 1.04, s.h * 1.05, 1);
-    r.position.set(0, s.y, z);
-    g.add(r);
+  for (const [x, y, z, bw, bh, bd] of [[0, 0.98, 1.9, 2.08, 0.05, 0.07], [-1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [-1.03, 0.47, 1.0, 0.05, 0.98, 0.07], [1.03, 0.47, 1.0, 0.05, 0.98, 0.07]]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), frameMat);
+    bar.position.set(x, y, z);
+    g.add(bar);
   }
   // Engine cowl and exhausts.
   const cowl = new THREE.Mesh(loft([
-    { z: 1.0, w: 0.3, h: 0.2, n: 2.4 },
-    { z: 0.8, w: 0.6, h: 0.32, n: 3.2 },
-    { z: -1.4, w: 0.66, h: 0.34, n: 3.6 },
-    { z: -2.1, w: 0.4, h: 0.22, n: 3 },
+    { z: 1.0, w: 0.45, h: 0.24, n: 3.6 },
+    { z: 0.8, w: 0.6, h: 0.32, n: 4.4 },
+    { z: -1.4, w: 0.66, h: 0.34, n: 4.4 },
+    { z: -2.1, w: 0.42, h: 0.24, n: 3.8 },
   ], 24), hull);
   cowl.position.y = 1.0;
   g.add(cowl);
@@ -441,19 +530,19 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   // Stub wings with two missiles each.
   const missiles = [];
   for (const s of [-1, 1]) {
-    const wing = new THREE.Mesh(plate([[0, 0.6], [1.4, 0.45], [1.4, -0.35], [0, -0.5]].map(([x, y]) => [x * s, y]), 0.2, 0.05), hull);
+    const wing = new THREE.Mesh(plate([[0, 0.55], [1.4, 0.55], [1.4, -0.45], [0, -0.45]].map(([x, y]) => [x * s, y]), 0.08, 0), hull);
     wing.rotation.x = Math.PI / 2;
     const holder = new THREE.Group();
     holder.position.set(s * 0.95, 0.4, -0.1);
-    holder.rotation.z = s * -0.08;
+    holder.rotation.z = s * -0.04;
     holder.add(wing);
     g.add(holder);
     const tip = navLight(s < 0 ? 0xff2a1a : 0x22ff55, 0.05);
     tip.position.set(s * 2.37, 0.3, -0.1);
     g.add(tip);
     for (const [k, x] of [[0, 1.45], [1, 2.05]]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 1.1), dark);
-      rail.position.set(s * x, 0.21, 0.0);
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 1.1), dark);
+      rail.position.set(s * x, 0.26, 0.0);
       g.add(rail);
       const m = makeMissile();
       m.position.set(s * x, 0.05, 0.05);
@@ -722,8 +811,12 @@ const doorTex = canvasTexture(128, 128, (g, w, h) => {
 /** `lamp`: the lamp over the door; `skin`: shell colour. */
 function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x6f7378 } = {}) {
   const g = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: skinCol, map: corrugated, roughness: 0.55, metalness: 0.55, side: THREE.DoubleSide });
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 40, 1, true, 0, Math.PI), skin);
+  const skin = new THREE.MeshStandardMaterial({ color: skinCol, map: repeatOf(rustSkinTex, Math.PI * r / 3, len / 3), bumpMap: repeatOf(rustBumpTex, Math.PI * r / 1.5, len / 1.5), bumpScale: 1.6,
+    roughness: 0.6, metalness: 0.5, side: THREE.DoubleSide });
+  // Corrugations run over the arch from ground to ground, so the waves step along the length.
+  const shellGeo = corrugate(new THREE.CylinderGeometry(r, r, len, 40, Math.round(len / 0.32 * 6), true, 0, Math.PI), 0.32, 0.05,
+    (x, y) => y, (x, y, z) => { const l = Math.hypot(x, z) || 1; return [x / l, 0, z / l]; });
+  const shell = new THREE.Mesh(shellGeo, skin);
   shell.rotation.z = Math.PI / 2;
   shell.rotation.y = Math.PI / 2;
   g.add(shell);
@@ -1074,7 +1167,7 @@ function signSet() {
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
   const { sky, moon } = nightSky(scene, 0x6a6a78);
-  const fence = new THREE.Mesh(new THREE.PlaneGeometry(80, 4.4), new THREE.MeshStandardMaterial({ map: repeatOf(fenceTex, 80 / 0.17, 4.4 / 0.17), alphaTest: 0.35, side: THREE.DoubleSide, metalness: 0.3, roughness: 0.6, color: 0x80848a }));
+  const fence = new THREE.Mesh(new THREE.PlaneGeometry(80, 4.4), new THREE.MeshStandardMaterial({ map: repeatOf(fenceTex, 80 / 0.34, 4.4 / 0.32), alphaTest: 0.35, side: THREE.DoubleSide, metalness: 0.3, roughness: 0.6, color: 0x80848a }));
   fence.position.set(0, 2.2, 0);
   scene.add(fence);
   for (let x = -38.5; x <= 40; x += 6) {
@@ -1086,7 +1179,22 @@ function signSet() {
   board.position.set(0, 1.62, 0.03);
   scene.add(board);
   const signMat = new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.62, metalness: 0.15 });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.12), signMat);
+  // Old enamelled steel: bowed, with a bent corner and a scatter of dents and knocks.
+  const signGeo = new THREE.PlaneGeometry(1.25, 1.12, 50, 45);
+  {
+    const r = seeded(31);
+    const dents = Array.from({ length: 14 }, () => [(r() - 0.5) * 1.2, (r() - 0.5) * 1.06, 0.03 + r() * 0.09, (r() < 0.7 ? -1 : 1) * (0.008 + r() * 0.016)]);
+    const p = signGeo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i);
+      let z = 0.02 * Math.sin(x * 2.2 + 0.4) * Math.cos(y * 1.7) + 0.006 * Math.sin(x * 7 + y * 5);
+      z += 0.035 * Math.max(0, (x - 0.35) / 0.27 + (-y - 0.3) / 0.26 - 1) ** 2; // lower right corner bent out
+      for (const [dx, dy, rad, d] of dents) z += d * Math.exp(-((x - dx) ** 2 + (y - dy) ** 2) / (rad * rad));
+      p.setZ(i, Math.max(0.001, z + 0.022));
+    }
+    signGeo.computeVertexNormals();
+  }
+  const sign = new THREE.Mesh(signGeo, signMat);
   sign.position.set(0, 1.62, 0.05);
   scene.add(sign);
   // The strip light: a dark batten on a stem above the sign, and its tube.
@@ -1264,21 +1372,24 @@ function hangarSet() {
   scene.fog = new THREE.Fog(0x020202, 30, 80);
   const ambient = new THREE.AmbientLight(0x2a2a30, 0.25);
   scene.add(ambient);
-  const sheet = (rx, ry) => new THREE.MeshStandardMaterial({ color: 0x5e5e60, map: repeatOf(ribTex, rx, ry), roughness: 0.5, metalness: 0.55, side: THREE.DoubleSide });
+  const sheet = (rx, ry) => new THREE.MeshStandardMaterial({ color: 0x5e5e60, map: repeatOf(ribTex, rx, ry), roughness: 0.5, metalness: 0.55, side: THREE.DoubleSide,
+    bumpMap: repeatOf(rustBumpTex, rx / 4, ry * 3), bumpScale: 1.6 });
   for (const s of [-1, 1]) {
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, HW), sheet(2 * L / 0.55, 1));
+    const wallGeo = corrugate(new THREE.PlaneGeometry(2 * L, HW, Math.round(2 * L / 0.275 * 6), 1), 0.275, 0.045, (x) => x, () => [0, 0, 1]);
+    const wall = new THREE.Mesh(wallGeo, sheet(2 * L / 0.55, 1));
     wall.rotation.y = -s * Math.PI / 2;
     wall.position.set(s * W, HW / 2, 0);
     scene.add(wall);
   }
-  const roofGeo = new THREE.CylinderGeometry(W, W, 2 * L, 48, 1, true, Math.PI / 2, Math.PI);
+  const roofGeo = corrugate(new THREE.CylinderGeometry(W, W, 2 * L, 48, Math.round(2 * L / 0.3 * 6), true, Math.PI / 2, Math.PI), 0.3, 0.05,
+    (x, y) => y, (x, y, z) => { const l = Math.hypot(x, z) || 1; return [x / l, 0, z / l]; });
   roofGeo.rotateX(Math.PI / 2);
   roofGeo.scale(1, AH / W, 1);
   roofGeo.translate(0, HW, 0);
   const roofTex = canvasTexture(16, 64, (g, w, h) => {
     for (let y = 0; y < h; y++) { const v = 80 + 60 * Math.max(0, Math.sin(y / h * Math.PI * 4)); g.fillStyle = `rgb(${v},${v},${v - 4})`; g.fillRect(0, y, w, 1); }
   }, { repeat: [1, 2 * L / 0.6] });
-  const roof = new THREE.Mesh(roofGeo, new THREE.MeshStandardMaterial({ color: 0x6a6a6e, map: roofTex, roughness: 0.5, metalness: 0.55, side: THREE.DoubleSide }));
+  const roof = new THREE.Mesh(roofGeo, new THREE.MeshStandardMaterial({ color: 0x6a6a6e, map: roofTex, roughness: 0.5, metalness: 0.55, side: THREE.DoubleSide, bumpMap: repeatOf(rustBumpTex, 2, 2 * L / 1.5), bumpScale: 1.6 }));
   scene.add(roof);
   for (const s of [-1, 1]) {
     const sh = new THREE.Shape();
