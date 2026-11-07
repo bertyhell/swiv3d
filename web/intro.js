@@ -29,6 +29,7 @@
 //              past the lens, then climbs out over the camera
 //   T 860-957  white flash to the chrome SWIV 3D logo; fade out
 import * as THREE from './vendor/three.module.min.js';
+import { SIGN_ICONS } from './signIcons.js';
 
 /** Seconds per Smacker frame (the intro videos run at 1000/71 fps). */
 const FRAME = 0.071;
@@ -255,46 +256,16 @@ const signTex = canvasTexture(512, 480, (g, w, h) => {
   g.save(); g.scale(0.66, 1.08); g.fillText('KEEP OUT', w / 2 / 0.66, h * 0.5 / 1.08); g.restore();
   const icon = (cx, cy, kind) => {
     g.save(); g.translate(cx, cy); g.lineWidth = 7;
-    if (kind === 'man' || kind === 'mask') { g.beginPath(); g.arc(0, 0, 52, 0, Math.PI * 2); g.fill(); }
+    if (kind === 'man' || kind === 'mask') { g.beginPath(); g.arc(0, 0, 54, 0, Math.PI * 2); g.fill(); }
     if (kind === 'rad' || kind === 'bio') {
-      g.beginPath(); g.moveTo(0, -60); g.lineTo(60, 0); g.lineTo(0, 60); g.lineTo(-60, 0); g.closePath(); g.stroke();
+      g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(0, -62); g.lineTo(62, 0); g.lineTo(0, 62); g.lineTo(-62, 0); g.closePath(); g.stroke();
     }
-    g.fillStyle = '#b4c21e';
-    if (kind === 'man') {
-      // A figure in a hooded protective suit.
-      g.beginPath(); g.ellipse(0, -24, 14, 15, 0, 0, 7); g.fill();
-      g.fillRect(-15, -10, 30, 34); g.fillRect(-21, -6, 7, 26); g.fillRect(14, -6, 7, 26);
-      g.fillRect(-13, 22, 11, 22); g.fillRect(2, 22, 11, 22);
-      g.fillStyle = ink; g.fillRect(-8, -28, 16, 7);
-    } else if (kind === 'mask') {
-      // Gas mask: goggles and canister.
-      g.beginPath(); g.ellipse(0, -2, 30, 36, 0, 0, 7); g.fill();
-      g.fillStyle = ink;
-      g.beginPath(); g.arc(-12, -12, 9, 0, 7); g.arc(12, -12, 9, 0, 7); g.fill();
-      g.beginPath(); g.arc(0, 18, 11, 0, 7); g.fill();
-    }
-    g.fillStyle = ink;
-    if (kind === 'rad') {
-      for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, 32, k * 2.094 - 1.05 - 0.5, k * 2.094 - 1.05 + 0.5); g.closePath(); g.fill(); }
-      g.fillStyle = '#b4c21e'; g.beginPath(); g.arc(0, 0, 9, 0, 7); g.fill();
-      g.fillStyle = ink; g.beginPath(); g.arc(0, 0, 6, 0, 7); g.fill();
-    } else if (kind === 'bio') {
-      g.lineWidth = 6;
-      for (let k = 0; k < 3; k++) {
-        const a = k * 2.094 - Math.PI / 2;
-        g.beginPath(); g.arc(Math.cos(a) * 14, Math.sin(a) * 14, 15, 0, 7); g.stroke();
-      }
-      g.beginPath(); g.arc(0, 0, 9, 0, 7); g.stroke();
-    } else if (kind === 'flame') {
-      g.beginPath(); g.moveTo(0, -46); g.quadraticCurveTo(30, -6, 18, 30); g.quadraticCurveTo(8, 12, 0, 34);
-      g.quadraticCurveTo(-8, 12, -18, 30); g.quadraticCurveTo(-30, -6, 0, -46); g.fill();
-      g.fillRect(-26, 36, 52, 8);
-    } else if (kind === 'blast') {
-      g.beginPath();
-      for (let k = 0; k < 22; k++) { const a = k / 22 * Math.PI * 2; const rr = k % 2 ? 14 : 44 + (k % 4) * 6; g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
-      g.closePath(); g.fill();
-      g.fillStyle = '#b4c21e'; g.beginPath(); g.arc(0, 0, 8, 0, 7); g.fill();
-    }
+    // Pictogram size in px; the disc icons are knocked out of the ink in sign colour.
+    const size = { man: 80, mask: 76, rad: 64, bio: 62, flame: 100, blast: 100 }[kind];
+    g.fillStyle = kind === 'man' || kind === 'mask' ? '#b4c21e' : ink;
+    g.translate(-size / 2, -size / 2); g.scale(size / 512, size / 512);
+    g.fill(new Path2D(SIGN_ICONS[kind]));
     g.restore();
   };
   for (const [x, y, k] of [[100, 96, 'man'], [256, 96, 'flame'], [412, 96, 'rad'], [100, 380, 'bio'], [256, 380, 'blast'], [412, 380, 'mask']]) {
