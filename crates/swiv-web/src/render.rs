@@ -837,6 +837,7 @@ impl Renderer {
                     buf.push(kind);
                 }
             }
+            add_cross_planes(&mut buf, first as usize * 10);
             let count = (buf.len() / 10) as i32 - first;
             if count > 0 {
                 self.ranges.insert(id as i32 - 10000, ModelRange { first, count });
@@ -1138,3 +1139,49 @@ fn tname(name: &'static str) -> &'static str {
     }
 }
 
+
+/// Trees are a single vertical textured card, which looks paper-thin from most angles.
+/// When every textured face of a model lies in one vertical plane and is transparent, add
+/// two copies of it rotated 60 and 120 degrees about the vertical axis through its centre,
+/// so it reads as a volume from every direction. Shadow faces are left alone.
+fn add_cross_planes(buf: &mut Vec<f32>, start: usize) {
+    const STRIDE: usize = 10;
+    let verts: Vec<&[f32]> = buf[start..].chunks(STRIDE).filter(|v| v[9] < 2.5).collect();
+    if verts.len() < 3 || verts.iter().any(|v| v[9] < 0.5 || v[9] > 1.5) {
+        return;
+    }
+    // Plane normal from the first non-degenerate triangle.
+    let mut normal = Vec3::ZERO;
+    for t in verts.chunks(3).filter(|t| t.len() == 3) {
+        let p: Vec<Vec3> = t.iter().map(|v| Vec3::new(v[0], v[1], v[2])).collect();
+        normal = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
+        if normal != Vec3::ZERO {
+            break;
+        }
+    }
+    if normal == Vec3::ZERO || normal.y.abs() > 0.2 {
+        return;
+    }
+    let d0 = normal.dot(Vec3::new(verts[0][0], verts[0][1], verts[0][2]));
+    let (mut minx, mut maxx, mut minz, mut maxz) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+    for v in &verts {
+        if (normal.dot(Vec3::new(v[0], v[1], v[2])) - d0).abs() > 2.0 {
+            return;
+        }
+        minx = minx.min(v[0]);
+        maxx = maxx.max(v[0]);
+        minz = minz.min(v[2]);
+        maxz = maxz.max(v[2]);
+    }
+    let (cx, cz) = ((minx + maxx) * 0.5, (minz + maxz) * 0.5);
+    let card: Vec<f32> = buf[start..].chunks(STRIDE).filter(|v| v[9] < 2.5).flatten().copied().collect();
+    for deg in [60.0f32, 120.0] {
+        let (s, c) = deg.to_radians().sin_cos();
+        for v in card.chunks(STRIDE) {
+            let (x, z) = (v[0] - cx, v[2] - cz);
+            let (nx, nz) = (v[3], v[5]);
+            buf.extend_from_slice(&[cx + x * c - z * s, v[1], cz + x * s + z * c, nx * c - nz * s, v[4], nx * s + nz * c]);
+            buf.extend_from_slice(&v[6..10]);
+        }
+    }
+}

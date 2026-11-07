@@ -526,10 +526,18 @@ impl World {
 
     /// Highest terrain under a disc of `radius` (centre plus eight points on the rim).
     fn footprint_height(&self, x: i32, z: i32, radius: i32) -> i32 {
-        (0..8).fold(self.terrain.height(x, z), |h, k| {
-            let a = k * 64;
-            h.max(self.terrain.height(x + sin(a) * radius / 256, z + cos(a) * radius / 256))
-        })
+        // Sample a grid over the whole square footprint (half a terrain cell apart) so a
+        // ridge or bump under the middle of the pad is caught, not just the rim.
+        const STEP: i32 = 1 << 13;
+        let n = (radius / STEP).max(1);
+        let step = radius / n;
+        let mut h = self.terrain.height(x, z);
+        for i in -n..=n {
+            for j in -n..=n {
+                h = h.max(self.terrain.height(x + i * step, z + j * step));
+            }
+        }
+        h
     }
 
     /// Height of a collectable's origin above its platform's origin: standing on the top
