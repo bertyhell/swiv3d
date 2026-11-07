@@ -1,103 +1,114 @@
-# SWIV 3D — Rust + WebAssembly + WebGL 2
+# SWIV 3D: Rust + WebAssembly + WebGL 2
 
-A browser rebuild of **SWIV 3D** (SCi, 1996) that runs on the original game data.
+[![Play](https://img.shields.io/badge/%E2%96%B6-Play%20in%20browser-brightgreen?style=for-the-badge)](https://bertyhell.github.io/swiv3d)
 
 ![The first level running in the browser: the helicopter over a river, with pylons, buildings, the targeting reticle, radar and score](docs/screenshot.jpg)
 
-The data formats and the player flight model were reverse-engineered from the original
-executables, whose Watcom debug symbols survive (see [docs/formats.md](docs/formats.md)).
-The earlier Unity fan remake (<https://github.com/bertyhell/swiv3d>) was used only as a
-reference for feel; the original binaries are the source of truth.
+A browser version of **SWIV 3D** (SCi, 1996). The game itself (data loading, simulation and
+3D rendering) is written in Rust and compiled to WebAssembly. A thin JavaScript layer
+handles the page, menus, HUD, input and audio.
 
-## Layout
+## Repository layout
 
 | path | what |
 |------|------|
-| `crates/swiv-formats` | parsers: BD/SLV bundles, heightmaps, colour maps, palettes, shade tables, texture pages, models, spawn lists, UI strings, sounds |
-| `crates/swiv-core` | deterministic fixed-tick simulation; exact integer port of `CONTROL_keyboard_1H` + `OBFUNC_heli_base` |
-| `crates/swiv-web` | wasm-bindgen entry point and WebGL 2 renderer |
-| `tools/swiv-extract` | CLI that dumps everything to PNG / OBJ / WAV / JSON, rips CD audio, converts Smacker videos |
-| `web/` | page, HUD, input, audio, file loading |
-| `web/frontend.js` | the original's menus (pilots, controller, main menu, setup, credits) |
-| `web/briefing.js` | the mission briefing, timed and laid out after the BR_TER* videos and their `.SCR` overlay scripts, with close-ups rendered by the game |
-| `web/intro.js` | the opening cinematic, rebuilt in real time with three.js (vendored in `web/vendor/`, MIT), shot for shot and frame-timed against INTRO1/INTRO2 |
-| `docs/formats.md` | byte-level format notes and the flight model |
+| `Cargo.toml` | Cargo workspace for the Rust crates |
+| `crates/swiv-formats` | parsers for the game's data: level bundles, heightmaps, colour maps, palettes, texture pages, 3D models, spawn lists, the 3D font, strings and sounds |
+| `crates/swiv-core` | the game simulation: player flight, enemies, weapons, pickups, objectives. Pure Rust, no I/O |
+| `crates/swiv-web` | the WebAssembly entry point (`Game`, exported with wasm-bindgen) and the WebGL 2 renderer |
+| `web/index.html`, `web/style.css` | the page and HUD layout |
+| `web/main.js` | boot, asset loading, the frame loop, input (keyboard and gamepad), HUD, radar, map and audio |
+| `web/frontend.js` | the menus: pilots, controller, main menu, setup, credits |
+| `web/briefing.js`, `web/briefing-cockpit.js`, `web/globe.js` | the mission briefing screens |
+| `web/intro.js` | the opening cinematic, rendered in real time with three.js (`web/vendor/`, MIT) |
+| `web/assets/` | the game data the page loads at runtime, listed in `manifest.json` |
+| `web/pkg/` | build output: the compiled `.wasm` and its JavaScript bindings |
+| `build.sh` | builds `crates/swiv-web` to WebAssembly and generates `web/pkg/` |
+| `run.sh` | serves `web/` locally with live reload |
+| `.github/workflows/pages.yml` | builds the WebAssembly and deploys `web/` to GitHub Pages on every push to `main` |
 
-## Play
+## How it works
 
-Run these from this `remake/` folder:
+### Rust crates
+
+The three crates are layered:
+
+1. **`swiv-formats`** turns raw bytes into typed Rust structures, such as a `Level` (terrain
+   maps, textures, models, spawns) or a `Font3d`. It has no dependency on the browser.
+2. **`swiv-core`** holds the `World`, a deterministic simulation that advances in fixed
+   30 Hz ticks (`TICK_HZ`). Each tick takes an `Input` (a bitmask of the pressed controls)
+   and updates the helicopter, enemies, projectiles and objectives. It produces `Event`s
+   (hits, pickups, objective done, level complete, and so on) and a list of `Instance`s to
+   draw. Because it does no I/O and uses integer maths, the same inputs always give the same
+   result, so it is easy to test natively with `cargo test`.
+3. **`swiv-web`** wraps both crates for the browser. It is built as a `cdylib` for
+   `wasm32-unknown-unknown` and uses `wasm-bindgen`, `web-sys` and `js-sys` to talk to
+   JavaScript and WebGL.
+
+### WebAssembly boundary
+
+`build.sh` compiles `swiv-web` to `swiv_web.wasm`, and `wasm-bindgen --target web` generates
+`web/pkg/swiv_web.js`, an ES module that loads the wasm and exposes the Rust API as
+JavaScript classes. `web/main.js` imports it:
+
+```js
+import init, { Game, global_strings, sound_offsets } from './pkg/swiv_web.js';
+await init();
+const game = new Game(canvas);
+```
+
+The JavaScript side fetches the asset files and passes their bytes to Rust as
+`Uint8Array`s (`load_font`, `load_level_parts`). From then on, each
+`requestAnimationFrame` tick does the following:
+
+- `game.update(dt_ms, key_bits)`: Rust collects the elapsed time and runs as many fixed
+  simulation ticks as fit, so the game speed doesn't depend on the display's refresh rate.
+- `game.render()`: draws the frame with WebGL.
+- `game.hud()`, `game.radar()`, `game.take_events()`: return plain number arrays that
+  JavaScript turns into HUD text, the radar, sound effects and music cues.
+
+Only small numeric arrays cross the boundary each frame. The world state stays in wasm memory.
+
+### WebGL 2 renderer
+
+`crates/swiv-web/src/render.rs` creates a WebGL 2 context on the page's canvas (opaque, no
+alpha). It uses GLSL ES 3.00 shaders embedded as Rust string constants, with one program
+each for terrain, models, sprites, the 3D text and rotors.
+
+- **Terrain** is a fixed grid of cells around the camera. The vertex shader looks up heights
+  with `texelFetch` from an integer heightmap texture and wraps the coordinates, so the
+  512×512 map tiles seamlessly. Per-cell type and baked lighting come from a second texture.
+  The fragment shader samples the level's texture pages and fades to black with distance.
+- **Models** (buildings, vehicles, the helicopter) are uploaded once per level into vertex
+  array objects. Each frame they are drawn from the simulation's instance list.
+- **Sprites** (shots, explosions, smoke, the lock-on ring) are camera-facing billboards
+  blended over the scene.
+- Everything is drawn relative to the camera, which keeps float precision high and makes
+  the map's wraparound invisible.
+
+The same `Game` also renders the menu background (a self-flying "attract" flight over a level)
+and the menu headings in the game's 3D font.
+
+## Build and run
 
 ```bash
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.100
 ./build.sh
-cargo run --release -p swiv-extract --bin swiv-pack -- "../original/SWIV 3D (1996)/SWIV3D/cd/cd/GameData" web/assets --music ../mp3 \
-    --anims "../original/SWIV 3D (1996)/SWIV3D/cd/cd/Anims"
 python3 -m http.server -d web 8080
 ```
 
-`swiv-pack` converts the game data once into `web/assets/`: every level's height, type and
-colour maps and its texture pages as 8-bit PNGs (indexed with the game's own palette, so they
-view correctly and keep the exact indices the renderer needs), a slim `level.bd` per level with
-the models, spawns and tables, the sound effects as WAV and the soundtrack as MP3, listed in
-`manifest.json`. With `--anims` (needs ffmpeg) it also writes `intro.mp3`, the audio of the two
-intro videos, which the real-time intro plays in sync (without it the intro falls back to a few
-of the game's sound effects), and for each mission briefing video its soundtrack and overlay
-script under `briefing/`, plus the briefing's sound effects (grid, waypoint, close-up, outro and
-the hum under them; they are not in SOUNDS.BD) cut from BR_TER1 for the levels without a video. Open <http://localhost:8080> and the menu comes up straight away.
+Open <http://localhost:8080>, or use `./run.sh` for a live-reloading server.
 
-The page opens like the original: press a key, the intro plays (any key skips; add
-`?intro=0` to the URL to leave it out), then the front end runs over a live flyover of a level
-with the menu headings in the game's 3D font: Select Pilot, New Pilot, Controller Type, Main
-Menu (Start Game, Setup, Replay Intro, Credits, New Player, Exit) and Setup (volumes, music
-track, detail level). Pilots and their campaign progress are kept in `localStorage`; Start
-Game shows the mission briefing before each level; `?briefing=TERRAN03` (any level name) skips
-straight to that level's briefing after the first key press.
-
-Without `web/assets/` the page asks for the game instead: click **Choose game folder** and
-select the CD's `GameData` folder (or the whole CD folder). For the soundtrack, include
-`swiv3d.cue` + `swiv3d.bin` (streamed straight from the image) or a `music/` folder.
-
-Controls: arrows turn / thrust, `W` `S` thrust, `A` `D` (or `Z` `X`) strafe,
-Shift + arrows strafe, Space / Ctrl fire, Enter special weapon, `Q` `E` / Tab select special, `M` map,
-`N` next music track, Esc pause. Gamepads work too.
-
-## Extract assets
-
-```bash
-cargo run --release -p swiv-extract -- "<cd>/GameData" assets-out \
-    --anims "<cd>/Anims" --cue "<path>/swiv3d.cue"
-```
-
-Produces per level `height.png`, `colour.png`, `type.png`, `palette.png`, texture pages,
-every model as OBJ + MTL and `spawns.json`; plus `global/strings.json`, `sounds/<effect>-<description>.wav`,
-`music/trackNN.ogg` and `video/*.webm`.
+Controls: the arrow keys turn and thrust, `W` `S` thrust, `A` `D` strafe, Space fires, Enter
+fires the special weapon, `Q` `E` select a special weapon, `M` shows the map, Esc pauses.
+Gamepads work too.
 
 ## Tests
 
 ```bash
-SWIV_DATA="<cd>/GameData" cargo test
+cargo test
 ```
 
-The data tests parse all 18 levels, `GLOBAL.BD` and `SOUNDS.BD`. The simulation tests check
-determinism over a scripted replay, the hover height and the decoded top speed. Without
-`SWIV_DATA` the data-dependent tests skip.
-
-## Status
-
-Done: every data format needed to play (terrain, textures, models, spawns, palette,
-sounds, strings, CD audio, video), exact player flight physics, all 17 campaign levels
-loadable in order, enemies (turrets, tanks, boats, aircraft, drones, spawners), pickups,
-weapons with auto-targeting, objectives and level progression, HUD, radar, map, sound
-effects, engine loop and CD music.
-
-Checked against the original running in DOSBox-X (frames and sound recorded from the
-emulator): the menu flow and its look, the briefing map, the gun's rhythm (pairs of pulses,
-~2.5 a second held) and its sound (a click every ~140 ms while the trigger is held), houses
-taking 8 hits, and the winch cable (a thin solid red line from the belly to the item).
-
-Approximated (not yet decompiled function by function): enemy AI tuning, weapon damage and
-pickup effects, the buggy / ski vehicle changeovers, bosses' special patterns, the
-briefing videos (rebuilt in real time on their scripts' timing with their own soundtracks; the
-map's placement and the close-up camera are approximate), weapon sprites (drawn as procedural glows until the GLOBAL.BD sprite banks
-are decoded), wreck smoke and fire, and rotor discs.
+The simulation tests check determinism over a scripted replay, the hover height and the top
+speed.
