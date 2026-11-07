@@ -28,6 +28,9 @@ const DOT_R = 7.5;
 const FONT = 'italic 700 15px "Trebuchet MS", Verdana, "DejaVu Sans", system-ui, sans-serif';
 const TEXT_H = 16;
 const GLOBE = { x: 80, y: 70, r: 50 };  // centre and pointer reach of the Objective Guide
+// The Objective Guide's pointer in the briefing: fixed at -15 degrees (right, a little down),
+// as in BR_TER0, well clear of the north triangle.
+const GUIDE_AIM = 15 * Math.PI / 180;
 
 // Timing (s), measured on the videos. A waypoint's sweep and flash come this long before its
 // close-up and label; the map flies in this long before the first sweep and settles in SPIN.
@@ -351,12 +354,12 @@ export function runBriefing({ mapCanvas, points, title = '', text: str = (g, i, 
     if (globe) {
       reserved.push({ x: globe.x - globe.r, y: globe.y - globe.r, w: globe.r * 2, h: globe.r * 2 });
       const nw = measure(str(22, 2, 'North'));
-      globe.north = { x: globe.x - nw / 2, y: globe.y - globe.r - TEXT_H - 1, w: nw, h: TEXT_H };
+      // Just above the rim, over the north triangle (the disk's radius is 0.78 of the reach).
+      globe.north = { x: globe.x - nw / 2, y: globe.y - globe.r * 0.78 - TEXT_H - 1, w: nw, h: TEXT_H };
       reserved.push(globe.north);
       if (goal) {
         // The white pointer's tip, and "Objective Guide" right beside it.
-        const wrapd = (d) => ((d + 768) % 512) - 256;
-        const ang = Math.atan2(wrapd(goal.z - start.z), wrapd(goal.x - start.x));
+        const ang = GUIDE_AIM;
         const tx = globe.x + Math.cos(ang) * globe.r, ty = globe.y + Math.sin(ang) * globe.r;
         const gw = measure(str(22, 3, 'Objective Guide'));
         const cands = [
@@ -365,7 +368,7 @@ export function runBriefing({ mapCanvas, points, title = '', text: str = (g, i, 
           { x: tx - gw / 2, y: ty - TEXT_H - 5 },
           { x: tx - 7 - gw, y: ty - TEXT_H / 2 },
         ].map((r) => ({ ...r, w: gw, h: TEXT_H }));
-        const disk = grow({ x: globe.x - globe.r * 0.84, y: globe.y - globe.r * 0.84, w: globe.r * 1.68, h: globe.r * 1.68 }, -6);
+        const disk = grow({ x: globe.x - globe.r * 0.78, y: globe.y - globe.r * 0.78, w: globe.r * 1.56, h: globe.r * 1.56 }, -6);
         globe.guide = cands.find((r) => !outside(r) && !area(r, globe.north) && !area(r, disk)) ?? cands[0];
         globe.tip = [tx, ty];
         reserved.push(globe.guide);
@@ -521,7 +524,7 @@ export function runBriefing({ mapCanvas, points, title = '', text: str = (g, i, 
         if (keyNow !== globeKey) {
           globeKey = keyNow;
           globeCanvas.width = globeCanvas.height = px;
-          paintGlobe(globeCanvas.getContext('2d'), px, mapCanvas, start.x, start.z, -Math.PI, pointer ? goal.x : -1, pointer ? goal.z : -1, 64);
+          paintGlobe(globeCanvas.getContext('2d'), px, mapCanvas, start.x, start.z, -Math.PI, pointer ? goal.x : -1, pointer ? goal.z : -1, 64, pointer ? GUIDE_AIM : null);
         }
         const gs = easeOut(span01(gt, 0, 0.35));
         g.save();

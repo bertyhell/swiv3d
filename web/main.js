@@ -117,6 +117,7 @@ function setStatus(msg, error = false) {
   const s = $('load-status');
   s.textContent = msg;
   s.classList.toggle('error', error);
+  if (error) $('loader').hidden = false;
 }
 
 // The game data converted by swiv-pack (tools/swiv-extract) into assets/: maps and textures
@@ -144,7 +145,7 @@ const bytesOf = async (url) => {
 
 async function afterFilesLoaded() {
   if (!state.files.has('global.bd') || (!state.assets && !state.files.has('sounds.bd'))) {
-    setStatus('GLOBAL.BD / SOUNDS.BD not found in that folder. Pick the GameData folder of the CD.', true);
+    setStatus('GLOBAL.BD / SOUNDS.BD not found.', true);
     return;
   }
   const levels = state.assets
@@ -154,7 +155,6 @@ async function afterFilesLoaded() {
     setStatus('No level files (*.SLV) found.', true);
     return;
   }
-  setStatus('Loading sounds…');
   try {
     const global = new Uint8Array(await state.files.get('global.bd').arrayBuffer());
     state.game.load_font(global);
@@ -259,6 +259,7 @@ async function startGame(name) {
   playMusic(-1);
   state.running = false;
   state.carry = null;
+  state.hudStart = null;
   await loadLevel(name);
   state.game.set_attract(false);
   state.game.set_view_distance(viewCells());
@@ -568,10 +569,13 @@ function updateHud(h) {
   if ($('lives').childElementCount !== lives) {
     $('lives').replaceChildren(...Array.from({ length: Math.max(0, lives) }, () => document.createElement('span')));
   }
-  // Energy fills the trapezoid window (y 13..88 in the capsule's viewBox) from the bottom.
-  const fill = 75 * Math.max(0, Math.min(100, health)) / 100;
-  $('energy-level').setAttribute('y', 88 - fill);
-  $('energy-level').setAttribute('height', fill);
+  // Energy fills the slanted window (left edge y 16..87, right edge 13..84) from the bottom, its top
+  // edge parallel to the window's. At the start of a game it charges up from empty over ~1.2 s.
+  state.hudStart ??= performance.now();
+  const t = Math.min(1, (performance.now() - state.hudStart) / 1200);
+  const charge = 1 - (1 - t) ** 3;
+  const d = 71 * Math.max(0, Math.min(100, health)) / 100 * charge;
+  $('energy-level').setAttribute('d', `M13 87 L28 84 L28 ${84 - d} L13 ${87 - d} Z`);
   $('energy').classList.toggle('low', health < 30);
   const empty = special < 0 || ammo <= 0;
   $('special').classList.toggle('empty', empty);
@@ -717,22 +721,6 @@ async function boot() {
     setStatus(`Cannot start WebGL 2: ${e}`, true);
     return;
   }
-  $('pick').addEventListener('change', async (e) => {
-    for (const f of e.target.files) addFile(f.webkitRelativePath || f.name, f);
-    await afterFilesLoaded();
-  });
-  const loader = $('loader');
-  addEventListener('dragover', (e) => { e.preventDefault(); loader.classList.add('drop'); });
-  addEventListener('dragleave', () => loader.classList.remove('drop'));
-  addEventListener('drop', async (e) => {
-    e.preventDefault();
-    loader.classList.remove('drop');
-    for (const item of e.dataTransfer.items) {
-      const entry = item.webkitGetAsEntry?.();
-      if (entry) await readEntries(entry);
-    }
-    await afterFilesLoaded();
-  });
   state.frontEnd = createFrontEnd({
     setTitle: (text, [r, g, b]) => state.game.set_title(text, r, g, b),
     get levels() { return state.levels; },
@@ -752,14 +740,13 @@ async function boot() {
   $('resume').addEventListener('click', () => setPaused(false));
   $('quit').addEventListener('click', toMenu);
   const data = new URLSearchParams(location.search).get('data');
-  setStatus('Loading game data…');
   if (!data && await loadPackedAssets()) {
     await afterFilesLoaded();
   } else if (data) {
     await fetchDataDir(data);
     await afterFilesLoaded();
   } else {
-    setStatus('');
+    setStatus('Game data not found: run swiv-pack to build assets/.', true);
   }
   requestAnimationFrame(frame);
 }

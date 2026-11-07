@@ -347,7 +347,7 @@ const puffTex = canvasTexture(64, 64, (g) => {
   for (let i = 0; i < 9; i++) {
     const x = 20 + r() * 24, y = 20 + r() * 24, rad = 10 + r() * 12;
     const grd = g.createRadialGradient(x, y, 0, x, y, rad);
-    grd.addColorStop(0, 'rgba(255,255,255,0.5)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    grd.addColorStop(0, 'rgba(255,255,255,0.75)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
   }
 });
@@ -1206,7 +1206,7 @@ function baseSet() {
     grd.addColorStop(0.92, 'rgba(255,255,255,0.25)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
     g.save(); g.scale(1, h / w); g.fillStyle = grd; g.fillRect(0, 0, w, w); g.restore();
   });
-  const poolSpot = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: poolTex, color: 0x8a8e98, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
+  const poolSpot = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: poolTex, color: 0x4a4e56, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
   poolSpot.rotation.x = -Math.PI / 2;
   poolSpot.scale.set(9, 4.2, 1);
   poolSpot.position.y = 0.03;
@@ -1659,7 +1659,7 @@ function duskSet() {
     m.scale.setScalar(1.8);
     scene.add(m);
     const puffs = [];
-    for (let k = 0; k < 70; k++) {
+    for (let k = 0; k < 130; k++) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, transparent: true, depthWrite: false, opacity: 0 }));
       s.userData = { jx: (r() - 0.5) * 0.5, jy: (r() - 0.5) * 0.5, sz: 0.45 + r() * 0.35 };
       scene.add(s);
@@ -1685,16 +1685,17 @@ function logoSet() {
     { x: 0, strokes: [[[158, 18], [18, 18], [18, 64], [140, 64], [140, 110], [0, 110]]] },
     { x: 178, strokes: [[[18, 0], [18, 110], [168, 110], [168, 0]], [[93, 0], [93, 110]]] },
     { x: 380, strokes: [[[18, 42], [18, 110]], [[18, 0], [18, 16]]] },
-    { x: 432, strokes: [[[18, 0], [18, 110], [126, 110], [158, 0]]] },
+    { x: 432, r: 40, strokes: [[[18, 0], [18, 110], [122, 110], [150, 0]]] },
   ];
   const tex = canvasTexture(1024, 320, (g, w, h) => {
     g.clearRect(0, 0, w, h);
     const trace = () => {
       g.beginPath();
       for (const L of LETTERS) for (const st of L.strokes) {
-        st.forEach(([x, y], i) => (i ? g.arcTo(...st[i - 1].map((v, j) => v + (j ? 0 : L.x)), x + L.x, y, i < st.length - 1 ? R : 0) : g.moveTo(x + L.x, y)));
-        const [lx, ly] = st[st.length - 1];
-        g.lineTo(lx + L.x, ly);
+        const P = st.map(([x, y]) => [x + L.x, y]);
+        g.moveTo(...P[0]);
+        for (let i = 1; i < P.length - 1; i++) g.arcTo(...P[i], ...P[i + 1], L.r ?? R);
+        g.lineTo(...P[P.length - 1]);
       }
     };
     const pass = (width, style, dx = 0, dy = 0) => {
@@ -1867,7 +1868,7 @@ export function createIntro(renderer) {
     const T = t - A(107);
     path(cam, T, [[0, [1, 3.0, 12], [-1.5, 1.0, -6], 46], [4.2, [12, 3.0, 12], [9.5, 1.0, -6], 46]], false);
     base.frontLight.intensity = 1.6;
-    const px = SET.apron + lerp(-2.5, 24, smooth(span(T, 0.1, 2.9))), pz = 1.5;
+    const px = SET.apron + lerp(-2.5, 24, smooth(span(T, 0.1, 2.9))), pz = 4.8;
     base.pool.intensity = 25;
     base.pool.target.position.set(px, 0, pz);
     base.pool.target.updateMatrixWorld();
@@ -2194,8 +2195,10 @@ export function createIntro(renderer) {
         if (!p.visible) return;
         const q = along(pu);
         p.position.set(q.x + p.userData.jx * (1 + age), q.y + p.userData.jy * (1 + age) + age * 0.3, q.z);
-        const hot = Math.sqrt(clamp01(1 - age / 2.5));
-        p.material.color.setRGB(lerp(0.82, 1, hot), lerp(0.78, 0.16, hot), lerp(0.82, 0.04, hot));
+        // Motor-fire yellow for an instant, then red-orange smoke cooling to grey-white.
+        if (age < 0.2) p.material.color.setRGB(1, lerp(0.85, 0.2, age / 0.2), lerp(0.55, 0.06, age / 0.2));
+        else if (age < 0.9) p.material.color.setRGB(0.95, 0.2, 0.06);
+        else { const c = smooth((age - 0.9) / 2.0); p.material.color.setRGB(lerp(0.95, 0.84, c), lerp(0.2, 0.8, c), lerp(0.06, 0.82, c)); }
         p.material.opacity = clamp01(1 - age / 3.2);
         p.scale.setScalar(p.userData.sz * (1 + age * 0.6));
       });

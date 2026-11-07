@@ -29,7 +29,7 @@
     </defs>
     <rect x="3" y="2" width="34" height="96" rx="17" fill="url(#chrome)" stroke="#16181b" stroke-width="1.2"/>
     <path d="M13 16 L28 13 L28 84 L13 87 Z" fill="#0b0c0e" stroke="#1d2024" stroke-width="1.5"/>
-    <g clip-path="url(#energy-window)"><rect id="energy-level" x="10" y="13" width="22" height="75" fill="url(#energy-fill)"/></g>
+    <g clip-path="url(#energy-window)"><path id="energy-level" d="M13 87 L28 84 L28 13 L13 16 Z" fill="url(#energy-fill)"/></g>
     <ellipse cx="15" cy="10" rx="6" ry="3" fill="#fff" opacity="0.45"/>
   </svg>
   <div id="special">
@@ -53,16 +53,7 @@
   <div id="banner" hidden></div>
 </div>
 
-<div id="loader" class="panel">
-  <h1>SWIV <em>3D</em></h1>
-  <p class="sub">SCi, 1996 &mdash; rebuilt in Rust, WebAssembly and WebGL 2</p>
-  <p>This page needs the original game files. Choose the folder from your SWIV 3D CD
-     (or its <code>GameData</code> folder). Nothing is uploaded: the files are read
-     locally by your browser.</p>
-  <label class="button primary" for="pick">Choose game folder</label>
-  <input id="pick" type="file" webkitdirectory multiple hidden>
-  <p class="hint">Or drop the folder here. Add <code>swiv3d.cue</code> + <code>swiv3d.bin</code>
-     (or the <code>music/</code> folder from <code>swiv-extract</code>) for the CD soundtrack.</p>
+<div id="loader" class="panel" hidden>
   <p id="load-status" role="status"></p>
 </div>
 
