@@ -277,6 +277,11 @@ impl Game {
                 pl.pos = p;
                 pl.yaw = yaw.round() as i32;
             }
+            // The shield rides with the craft: draw it at the same interpolated position,
+            // or it lags a tick behind and jitters while moving.
+            for s in self.instances.iter_mut().filter(|i| i.model == swiv_core::world::SHIELD_MODEL) {
+                s.pos = p;
+            }
         }
         let now = self.time;
         self.texts.retain(|(_, t0)| now - t0 < TEXT_FLIGHT_SECS as f64);

@@ -1,7 +1,7 @@
 // SWIV 3D web front-end: file loading, menus, input, HUD and audio.
 // The simulation and WebGL rendering live in Rust (crates/swiv-web).
 import init, { Game, global_strings, sound_offsets } from './pkg/swiv_web.js';
-import { playIntro } from './intro.js';
+import { playIntro, drawLogo } from './intro.js';
 import { createFrontEnd, runBriefing, store, save, pilot } from './frontend.js';
 import { K, PAD_ACTIONS, keyAction } from './controls.js';
 import { paintGlobe } from './globe.js';
@@ -174,6 +174,8 @@ async function afterFilesLoaded() {
 function showSplash() {
   state.mode = 'splash';
   const splash = $('splash');
+  const logo = $('splash-logo');
+  drawLogo(logo.getContext('2d'), logo.width, logo.height);
   splash.hidden = false;
   const go = async (e) => {
     e?.preventDefault?.();

@@ -46,6 +46,19 @@ export const SHELL = {
 /** The dash plane's extent: from below the overhead down past the frame, wider than it. */
 const DASH = { x0: -35, x1: 135, y0: 36, y1: 105 };
 
+/**
+ * The darker panels on the dash the side and bottom instruments sit on: [x0, y0, x1, y1] and
+ * how far each stands off the dash. Each is a true rectangle on the dash, laid out on its own
+ * grid from `at`, where it matches the frame: its rows run along the dash and its columns up
+ * it, so in perspective they converge as the dash recedes, as the boxes' edges do.
+ */
+export const DASH_ZONES = {
+  edgeL: { rect: [-35, 39, 3.9, 71], at: [2, 56], h: 0.004 },
+  edgeR: { rect: [95.6, 56, 135, 77], at: [98, 70], h: 0.004 },
+  gaugesL: { rect: [-35, 69.5, 31, 92], at: [16, 79], h: 0.008 },
+  bottomR: { rect: [54, 76, 135, 100], at: [80, 87], h: 0.008 },
+};
+
 const normal = new THREE.Vector3(-VANISH.x, -VANISH.y, 1).normalize();   // out of the dash
 const base = BASE.dot(normal);
 const cam = new THREE.PerspectiveCamera(FOV, ASPECT, 0.05, 40);
@@ -71,7 +84,7 @@ const up = new THREE.Vector3(0, 1, 0).projectOnPlane(normal).normalize();
 export const SHELL_FRAME = { normal, up, right: new THREE.Vector3().crossVectors(up, normal), center: onShell(50, 50, 0) };
 
 // Each part's front face, as sections between its rows: the corners in the frame and in 3D,
-// and the section's plane and axes.
+// and the section's plane.
 const sections = [];
 for (const [part, rows] of Object.entries(SHELL)) {
   for (let i = 0; i + 1 < rows.length; i++) {
@@ -81,10 +94,7 @@ for (const [part, rows] of Object.entries(SHELL)) {
     const n = new THREE.Vector3().crossVectors(p[2].clone().sub(p[0]), p[1].clone().sub(p[3])).normalize();
     if (n.dot(cam.position.clone().sub(p[0])) < 0) n.negate();
     const mid = p.reduce((a, v) => a.add(v), new THREE.Vector3()).multiplyScalar(0.25);
-    // Things on the face square up to its top edge: across along it, up square to it.
-    const r = p[1].clone().sub(p[0]).projectOnPlane(n).normalize();
-    const u = new THREE.Vector3().crossVectors(n, r);
-    sections.push({ part, img, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, mid), normal: n, right: r, up: u, h: Math.max(...hs) });
+    sections.push({ part, img, p, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, mid), normal: n, h: Math.max(...hs) });
   }
 }
 
@@ -99,21 +109,54 @@ const inside = (poly, x, y) => {
   return true;
 };
 
-// The dash squares up to its own top edge too.
+/**
+ * Where (x, y) of the frame falls on a section's face, laid out on the face's own grid: a row
+ * of the frame is a row across the face, between its top and bottom edges, and across it a
+ * point keeps its share of the face's width. So rows run parallel to the face's edges and
+ * columns lean with its sides. Right runs along the row, up along the column (on a tapering
+ * face the two are not square).
+ */
+function onSection(s, x, y) {
+  const [TL, TR, BR, BL] = s.img;
+  const top = (TL[1] + TR[1]) / 2, bottom = (BL[1] + BR[1]) / 2;
+  const v = (y - top) / (bottom - top);
+  const xl = TL[0] + (BL[0] - TL[0]) * v, xr = TR[0] + (BR[0] - TR[0]) * v;
+  const u = (x - xl) / (xr - xl);
+  const [a, b, c, d] = s.p;
+  const point = a.clone().lerp(b, u).lerp(d.clone().lerp(c, u), v);
+  s.plane.projectPoint(point, point);
+  const right = b.clone().sub(a).lerp(c.clone().sub(d), v).projectOnPlane(s.normal).normalize();
+  const up = a.clone().sub(d).lerp(b.clone().sub(c), u).projectOnPlane(s.normal).normalize();
+  return { part: s.part, point, normal: s.normal.clone(), right, up };
+}
+
+// The dash's own axes: right along its top edge, up square to it.
 const dashRight = onShell(DASH.x1, DASH.y0).sub(onShell(DASH.x0, DASH.y0)).normalize();
 const dashUp = new THREE.Vector3().crossVectors(normal, dashRight);
 
+/** The point of a dash zone's grid for (x, y) of the frame, `h` out from the dash. */
+function onZone(zone, x, y, h = zone.h) {
+  const [ax, ay] = zone.at;
+  const A = onShell(ax, ay, h);
+  const kx = onShell(ax + 1, ay, h).sub(A).dot(dashRight), ky = A.clone().sub(onShell(ax, ay + 1, h)).dot(dashUp);
+  return A.addScaledVector(dashRight, (x - ax) * kx).addScaledVector(dashUp, (ay - y) * ky);
+}
+
 /**
  * The surface that shows at (x, y) percent of the original frame: the front-most part face
- * there, else the dash. Returns the point on it, its outward normal, and its right and up
- * directions: right along the face's top edge, up square to it.
+ * there, else the dash zone, else the dash. Returns the point on it, its outward normal, and
+ * its right and up directions.
  */
 export function surfaceAt(x, y) {
   let best = null;
   for (const s of sections) if (inside(s.img, x, y) && (!best || s.h > best.h)) best = s;
-  if (!best) return { part: 'dash', point: onShell(x, y, 0), normal: normal.clone(), right: dashRight.clone(), up: dashUp.clone() };
-  const point = ray(x, y).intersectPlane(best.plane, new THREE.Vector3());
-  return { part: best.part, point, normal: best.normal.clone(), right: best.right.clone(), up: best.up.clone() };
+  if (best) return onSection(best, x, y);
+  const dash = (part, point) => ({ part, point, normal: normal.clone(), right: dashRight.clone(), up: dashUp.clone() });
+  for (const [name, z] of Object.entries(DASH_ZONES)) {
+    const [x0, y0, x1, y1] = z.rect;
+    if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return dash(name, onZone(z, x, y, z.h));
+  }
+  return dash('dash', onShell(x, y, 0));
 }
 
 /**
@@ -125,9 +168,12 @@ export function depthScale(p, flat) {
   return p.clone().sub(cam.position).dot(fwd) / flat.clone().sub(cam.position).dot(fwd);
 }
 
-/** A part as a solid: its folded front face plus sides back to the dash, UV-mapped by size. */
-function solid(rows) {
-  const front = rows.map(([l, r, h]) => [onShell(...l, h), onShell(...r, h)]);
+/**
+ * A part as a solid: its folded front face plus sides back to the dash, UV-mapped by size.
+ * `at(x, y, h)` places the frame's points (by default, where they show in the frame).
+ */
+function solid(rows, at = onShell) {
+  const front = rows.map(([l, r, h]) => [at(...l, h), at(...r, h)]);
   const back = front.map((row, i) => row.map((p) => p.clone().addScaledVector(normal, -rows[i][2])));
   const pos = [], uv = [];
   const quad = (a, b, c, d) => {
@@ -153,8 +199,27 @@ function solid(rows) {
 }
 
 /** A flat panel on the dash between percentage corners, `h` out from it (to layer panels). */
-export function dashPanel(x0, y0, x1, y1, h = 0) {
-  return solid([[[x0, y0], [x1, y0], h], [[x0, y1], [x1, y1], h]]);
+export function dashPanel(x0, y0, x1, y1, h = 0, at = onShell) {
+  return solid([[[x0, y0], [x1, y0], h], [[x0, y1], [x1, y1], h]], at);
+}
+
+/**
+ * The cabin roof: a dark ceiling from the console's top edge, carried across the whole frame,
+ * out over the pilot's head.
+ */
+function roof() {
+  const [[l, r, h]] = SHELL.console;
+  const a = onShell(...l, h), b = onShell(...r, h);
+  const along = b.clone().sub(a).normalize();
+  const out = normal.clone().addScaledVector(dashUp, 0.35).normalize();
+  const p0 = a.clone().addScaledVector(along, -8), p1 = b.clone().addScaledVector(along, 8);
+  const p2 = p1.clone().addScaledVector(out, 7), p3 = p0.clone().addScaledVector(out, 7);
+  const w = p1.distanceTo(p0) * 0.5, d = 7 * 0.5;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([p0, p1, p2, p0, p2, p3].flatMap((v) => v.toArray()), 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, w, 0, w, d, 0, 0, w, d, 0, d], 2));
+  g.computeVertexNormals();
+  return g;
 }
 
 /** The dash and every part as meshes; `materials[name]` (or `.default`) skins each. */
@@ -163,6 +228,14 @@ export function shellMeshes(materials) {
   const dash = new THREE.Mesh(dashPanel(DASH.x0, DASH.y0, DASH.x1, DASH.y1, 0.001), materials.dash ?? materials.default);
   dash.name = 'dash';
   group.add(dash);
+  for (const [name, z] of Object.entries(DASH_ZONES)) {
+    const m = new THREE.Mesh(dashPanel(...z.rect, z.h, (x, y, h) => onZone(z, x, y, h)), materials.zone ?? materials.dash ?? materials.default);
+    m.name = name;
+    group.add(m);
+  }
+  const top = new THREE.Mesh(roof(), materials.roof ?? materials.default);
+  top.name = 'roof';
+  group.add(top);
   for (const [name, rows] of Object.entries(SHELL)) {
     const m = new THREE.Mesh(solid(rows), materials[name] ?? materials.default);
     m.name = name;
@@ -177,7 +250,7 @@ export function shellBlockout({ edges = 0xf2d02a } = {}) {
   const group = shellMeshes({ default: mat, dash: new THREE.MeshStandardMaterial({ color: 0x30363a, roughness: 0.9, side: THREE.DoubleSide }) });
   if (edges != null) {
     for (const m of [...group.children]) {
-      if (m.name === 'dash') continue;
+      if (m.name === 'dash' || m.name === 'roof' || m.name in DASH_ZONES) continue;
       const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 4), new THREE.LineBasicMaterial({ color: edges }));
       e.renderOrder = 1;
       group.add(e);

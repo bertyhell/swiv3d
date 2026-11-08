@@ -54,7 +54,7 @@ const PICKUP_HEALTH_MEGA: i32 = 102;
 const PICKUP_SHIELD: i32 = 107;
 /// The shield orbits the craft until it has soaked up this much health damage.
 const SHIELD_DAMAGE: i32 = 25;
-const SHIELD_MODEL: i32 = 853;
+pub const SHIELD_MODEL: i32 = 853;
 const PICKUP_POWER_UP: std::ops::RangeInclusive<i32> = 110..=113;
 /// The gun fires in bursts of two pulses, "one, two, pause": `PULSE_GAP` ticks between the
 /// two pulses, `BURST_PERIOD` from burst to burst. Measured on the original running in
@@ -1131,7 +1131,8 @@ impl World {
                         self.smoke_damaged(i);
                     }
                 }
-                Brain::Pickup => self.update_pickup(i, playing && cells == 0 && d[1].abs() < (40 << 8 << 2)),
+                // Only the horizontal distance counts: any altitude above the pad grabs it.
+                Brain::Pickup => self.update_pickup(i, playing && cells == 0),
                 Brain::Turret => {
                     let e = &mut self.entities[i];
                     let td = trig::delta(e.top_yaw, to_player).clamp(-4, 4);

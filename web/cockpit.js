@@ -1,21 +1,22 @@
 // The gunship's cockpit, shared by the intro (shot I, where it wakes up) and the opening of the
 // mission briefing (BR_TER0, where the camera then pushes in on the map monitor). Modelled in
 // three.js after the original's frames. The dashboard's solid shapes (cockpit-shell.js) are a
-// tall centre console leaning out at the top, lamp strips either side of it, boxes for the two
+// tall centre console leaning out at the top under the cabin roof, lamp strips either side of it, boxes for the two
 // big screens and the bottom monitor, and the dash plane behind them. On them: the overhead
 // (square clock, a protruding wireframe CRT, two green displays, a row of warning lamps), a
-// big static MFD on the left, a green display in the console, the map monitor under its hood
+// big static MFD on the left, a green display in the console, the map monitor
 // on the right, spotlights on the two big screens, and banks of gauges, lamps and toggles.
 import * as THREE from './vendor/three.module.min.js';
 import { canvasTexture, panelTexture, metal } from './intro.js';
-import { COCKPIT_VIEW, surfaceAt, depthScale, shellMeshes, dashPanel } from './cockpit-shell.js';
+import { COCKPIT_VIEW, surfaceAt, depthScale, shellMeshes } from './cockpit-shell.js';
 
 export { COCKPIT_VIEW };
 
 // Layout positions are percentages of the original frame (x right, y down), so they can be
 // read straight off a screenshot. Sizes are in the same units on a flat plane facing the
 // camera (one world unit is 10% of the frame's width); each control is then mounted on the
-// dashboard face that shows at its position and scaled to look that size from there.
+// dashboard face that shows at its position, squared up to that face's own rows and columns
+// (sheared with it where the face tapers), and scaled to look that size from there.
 const U = 0.1, V = 0.08;
 const wx = (x) => (x - 50) * U;
 const wy = (y) => (50 - y) * V;
@@ -134,13 +135,14 @@ function build() {
   /** `fn(x, y, ...)` with everything it adds mounted on the dashboard face at (x, y). */
   const mounted = (fn) => (x, y, ...rest) => {
     const s = surfaceAt(x, y);
+    const k = depthScale(s.point, new THREE.Vector3(wx(x), wy(y), 0));
     const g = new THREE.Group();
-    g.position.copy(s.point);
-    g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(s.right, s.up, s.normal));
-    g.scale.setScalar(depthScale(s.point, new THREE.Vector3(wx(x), wy(y), 0)));
+    g.matrixAutoUpdate = false;
+    g.matrix.makeBasis(s.right.clone().multiplyScalar(k), s.up.clone().multiplyScalar(k), s.normal.clone().multiplyScalar(k)).setPosition(s.point);
+    g.matrixWorldNeedsUpdate = true;
     scene.add(g);
     const outer = mount;
-    mount = { g, ax: wx(x), ay: wy(y), surface: s };
+    mount = { g, k, ax: wx(x), ay: wy(y), surface: s };
     try { return fn(x, y, ...rest); } finally { mount = outer; }
   };
 
@@ -178,7 +180,7 @@ function build() {
   const knobMat = metal(0xa8acaa, 0.35, 0.7);
   const nutMat = metal(0x4a5052, 0.4, 0.7);
 
-  // ---- the dashboard's shapes, and darker panels on the dash around the gauges
+  // ---- the dashboard's shapes, the darker panels on the dash around the gauges, the roof
   const back = new THREE.Mesh(new THREE.PlaneGeometry(44, 26), new THREE.MeshStandardMaterial({ color: 0x0c1012, roughness: 0.9, metalness: 0.1 }));
   add(back, 0, 0, -3);
   scene.add(shellMeshes({
@@ -188,13 +190,9 @@ function build() {
     mfdR: shellMat(0x181e22),
     monitor: metal(0x2a3034, 0.6, 0.4),
     lampBox: bezelMat,
+    zone: navyMat,
+    roof: shellMat(0x090c0e),
   }));
-  for (const [x0, y0, x1, y1, h] of [
-    [-35, 39, 3.9, 71, 0.004],     // left edge column
-    [95.6, 56, 135, 77, 0.004],    // right edge column
-    [-35, 69.5, 31, 92, 0.008],    // gauges bottom left
-    [54, 76, 135, 100, 0.008],     // bottom right
-  ]) scene.add(new THREE.Mesh(dashPanel(x0, y0, x1, y1, h), navyMat));
 
   // Canopy frame across the top right, far behind.
   const strut = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(26 * U, 25 * V), 0.14, 0.1), metal(0x1a2022, 0.7, 0.3));
@@ -309,20 +307,13 @@ function build() {
     }
     power((p) => { f(p); if (gridMat) gridMat.opacity = 0.6 * p; if (l) l.intensity = p * 2.2; if (s) s.intensity = p * spot; });
     mount.g.updateMatrixWorld(true);
-    const k = mount.g.scale.x;
+    const k = mount.k;
     return {
       center: glass.getWorldPosition(new THREE.Vector3()),
       normal: mount.surface.normal.clone(),
       up: mount.surface.up.clone(),
       w: gw * k, h: gh * k,
     };
-  });
-
-  /** The hood over the map monitor, standing on its box's top. */
-  const hood = mounted((x, y) => {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 12, 0, Math.PI * 2, 0, Math.PI / 2), metal(0x30383a, 0.55, 0.45));
-    m.scale.set(1.9, 0.75, 0.7);
-    add(m, wx(x), wy(y), -0.8);
   });
 
   const noise = staticTex();
@@ -376,8 +367,7 @@ function build() {
   toggle(46.2, 69.8, -1);
   knob(49.6, 70.5);
 
-  // ---- map monitor under its hood (right): stays dark; the briefing map appears on it
-  hood(78.25, 40.5);
+  // ---- map monitor (right): stays dark; the briefing map appears on it
   const glass = screen(77.7, 56.5, 27, 29, { off: 0x000000, on: 0x070909, border: 0.7, spot: 30, sheen: true });
 
   // Right edge column.
@@ -398,8 +388,8 @@ function build() {
 
   // ---- bottom centre: the bright static monitor, and the lamp box on top of it
   screen(42, 92.3, 13, 15, { map: noise, on: 0xd8d8d4, border: 1.1 });
-  lamp(39.8, 78.2, 0xff4a40);
-  lamp(44.6, 78.6, 0xffe030);
+  lamp(39.8, 78.4, 0xff4a40);
+  lamp(44.6, 78.4, 0xffe030);
 
   // ---- bottom right
   gauge(58.5, 79.5);
