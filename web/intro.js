@@ -725,15 +725,9 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   const glass = new THREE.Mesh(loft(canopy.map((c) => ({ ...c, w: c.w * 0.95, h: c.h * 1.025, bot: 0.02 })), 40), gm);
   g.add(glass);
   g.add(new THREE.Mesh(loft(canopy.map((c) => ({ ...c, w: c.w * 1.02, h: c.h * 0.95, bot: 0.02 })), 40), gm));
-  // Frame: posts between the side windows, and a pillar down each side of the sloped
-  // windscreen (like a car's A-pillars), running along the glass's rounded corner from the
-  // nose (z = 3.0) up to the roof (z = 1.9).
+  // Frame: a pillar down each side of the sloped windscreen (like a car's A-pillars), running
+  // along the glass's corner from the nose (z = 3.0) up to the roof (z = 1.9).
   const frameMat = dark;
-  for (const [x, y, z, bw, bh, bd] of [[-1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [-1.03, 0.47, 1.0, 0.05, 0.98, 0.07], [1.03, 0.47, 1.0, 0.05, 0.98, 0.07]]) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), frameMat);
-    bar.position.set(x, y, z);
-    g.add(bar);
-  }
   {
     // A point on a glass section's corner, at angle a round the superellipse, just proud of it.
     const corner = (c, a, side) => {
@@ -785,10 +779,7 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
     holder.rotation.z = s * -0.09;
     holder.add(wing);
     g.add(holder);
-    const tip = navLight(s < 0 ? 0xff2a1a : 0x22ff55, 0.05);
-    tip.position.set(s * 2.37, 0.3, -0.1);
-    g.add(tip);
-    wings.push(wing, tip);
+    wings.push(wing);
     for (const [k, x] of [[0, 1.45], [1, 2.05]]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 1.1), dark);
       rail.position.set(s * x, 0.26, 0.0);
@@ -836,8 +827,23 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
     ring.position.y = y;
     rotor.add(ring);
   }
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.23, 0.2, 16), dark);
+  // The hub is grey, as in the video, with a grey scissor plate reaching out at 45 degrees
+  // between each pair of black blades.
+  const hubGrey = metal(0x8c8e92, 0.4, 0.7);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.23, 0.2, 16), hubGrey);
   rotor.add(hub);
+  for (let k = 0; k < 4; k++) {
+    const arm = new THREE.Group();
+    arm.rotation.y = Math.PI / 4 + k * Math.PI / 2;
+    const plateArm = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.36), hubGrey);
+    plateArm.position.set(0, 0.06, 0.3);
+    arm.add(plateArm);
+    const knuckle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 10), hubGrey);
+    knuckle.rotation.z = Math.PI / 2;
+    knuckle.position.set(0, 0.06, 0.47);
+    arm.add(knuckle);
+    rotor.add(arm);
+  }
   const bladeGeo = bladeGeometry();
   const bladeMat = new THREE.MeshStandardMaterial({ color: 0x17181b, roughness: 0.75, metalness: 0.2, transparent: true });
   const blades = [];
@@ -885,7 +891,7 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   }
   // A low fairing cap over the hub.
   // Flat, like the stacked plates of the video's rotor head.
-  const dome = new THREE.Mesh(new THREE.LatheGeometry([V(0.25, 0, 0), V(0.24, 0.04, 0), V(0.19, 0.07, 0), V(0.1, 0.09, 0), V(0, 0.095, 0)], 20), dark);
+  const dome = new THREE.Mesh(new THREE.LatheGeometry([V(0.25, 0, 0), V(0.24, 0.04, 0), V(0.19, 0.07, 0), V(0.1, 0.09, 0), V(0, 0.095, 0)], 20), hubGrey);
   dome.position.y = 0.09;
   rotor.add(dome);
   const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 5.9, 48),
@@ -1047,19 +1053,20 @@ function makeMissile() {
     return m;
   };
   // Tail: a short cream collar, closed at the back.
-  section([[0, -0.75], [0.05, -0.75], [0.07, -0.745], [0.074, -0.72], [0.076, -0.6]], cream);
+  section([[0, -0.75], [0.06, -0.75], [0.075, -0.745], [0.079, -0.73], [0.079, -0.6]], cream);
   // Rear section: dark, the widest part.
   section([[0.076, -0.6], [0.079, -0.59], [0.079, -0.2], [0.078, -0.19]], dark);
   // Body: cream, tapering gently toward the nose.
-  section([[0.078, -0.19], [0.075, 0.0], [0.066, 0.3], [0.058, 0.56]], cream);
-  // A dark ring, then a short, blunt ogive nose.
-  section([[0.058, 0.56], [0.06, 0.565], [0.06, 0.61], [0.058, 0.615]], dark);
+  // The white body widens steadily from the thin nose to the full width, which then holds
+  // to the tail, as in the video.
+  section([[0.078, -0.19], [0.079, -0.12], [0.074, 0.05], [0.064, 0.22], [0.052, 0.38], [0.042, 0.5]], cream);
+  // A dark ring, then a slim, pointed nose.
+  section([[0.042, 0.5], [0.043, 0.505], [0.043, 0.55], [0.041, 0.555]], dark);
   const ogive = [];
   for (let i = 0; i <= 12; i++) {
     const u = i / 12;
-    ogive.push([0.058 * Math.pow(Math.max(0, 1 - u * u), 0.6), 0.615 + 0.17 * u]);
+    ogive.push([0.041 * Math.pow(1 - u, 0.75), 0.555 + 0.23 * u]);
   }
-  ogive.push([0, 0.786]);
   // The nose cap is a lighter, worn grey than the ring behind it.
   section(ogive, new THREE.MeshStandardMaterial({ color: 0xa8a6a0, map: missileDarkTex, roughness: 0.45, metalness: 0.3 }));
   // Fins: four small swept plates at the tail, set in an X, joined at their tips by a ring.
@@ -1093,6 +1100,44 @@ function makeMissile() {
 }
 
 /** A twin-finned air-superiority jet parked on the apron. +z forward. */
+/**
+ * A jet's air-to-air missile, nose toward +z, as the video's: a long thin body (dark forward
+ * section, white aft), a pointed nose, four mid-body wings and four larger tail fins in a
+ * cross. `light`: an all-white short-range missile.
+ */
+function makeJetMissile(len = 3.6, r = 0.1, light = false) {
+  const g = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xdedcd4, roughness: 0.5, metalness: 0.15 });
+  const grey = light ? white : new THREE.MeshStandardMaterial({ color: 0x3e4044, roughness: 0.55, metalness: 0.3 });
+  const tip = new THREE.MeshStandardMaterial({ color: 0x6a6c70, roughness: 0.3, metalness: 0.4 });
+  const half = len / 2;
+  const fwd = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len * 0.5, 12).rotateX(Math.PI / 2), grey);
+  fwd.position.z = len * 0.18;
+  g.add(fwd);
+  const aft = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len * 0.43, 12).rotateX(Math.PI / 2), white);
+  aft.position.z = -len * 0.285;
+  g.add(aft);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(r, len * 0.1, 12).rotateX(Math.PI / 2), tip);
+  nose.position.z = half - len * 0.07 + len * 0.05;
+  g.add(nose);
+  const finMat = new THREE.MeshStandardMaterial({ color: 0xd0cec6, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide });
+  const fin = (z, root, span, sweep) => {
+    for (let k = 0; k < 4; k++) {
+      const f = new THREE.Mesh(plate([[0, 0], [root, 0], [root - sweep * 0.2, span], [root - sweep, span]].map(([u, v]) => [u, v]), 0.012, 0), finMat);
+      const arm = new THREE.Group();
+      arm.rotation.z = k * Math.PI / 2 + Math.PI / 4;
+      f.rotation.y = -Math.PI / 2;
+      f.position.set(0, r * 0.9, z);
+      arm.add(f);
+      g.add(arm);
+    }
+  };
+  // Mid wings (delta), then the tail fins at the very back.
+  fin(-len * 0.02, len * 0.14, r * 2.4, len * 0.1);
+  fin(-half + len * 0.01, len * 0.12, r * 3.2, len * 0.06);
+  return g;
+}
+
 function makeJet() {
   const g = new THREE.Group();
   // Light grey, as the video's jets are.
@@ -1146,10 +1191,21 @@ function makeJet() {
       tip.position.set(s * 6.72, 0, -2.4);
       g.add(tip);
     }
-    const st = new THREE.Mesh(plate([[0, 0.4], [2.3, -0.8], [2.3, -1.4], [0, -1.5]].map(([x, y]) => [x * s, y]), 0.08, 0.02), m);
+    const st = new THREE.Mesh(plate([[0, 0.4], [2.3, -0.8], [2.3, -1.15], [0, -1.15]].map(([x, y]) => [x * s, y]), 0.08, 0.02), m);
     st.rotation.x = Math.PI / 2;
     st.position.set(s * 1.3, -0.05, -3.8);
     g.add(st);
+    // The stabiliser's trailing-edge flap, hinged behind a dark gap and drooped a little.
+    const flapHinge = new THREE.Group();
+    flapHinge.position.set(s * 1.3, -0.05, -3.8 - 1.2);
+    flapHinge.rotation.x = 0.12;
+    const flap = new THREE.Mesh(plate([[0.15, 0], [2.3, 0], [2.3, -0.42], [0.15, -0.5]].map(([x, y]) => [x * s, y]), 0.06, 0.015), m);
+    flap.rotation.x = Math.PI / 2;
+    flapHinge.add(flap);
+    g.add(flapHinge);
+    const gap = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.05, 0.05), dark);
+    gap.position.set(s * (1.3 + 1.22), -0.05, -3.8 - 1.17);
+    g.add(gap);
     const fin = new THREE.Mesh(plate([[0, 0], [1.9, 0], [0.9, 2.3], [0.1, 2.3]], 0.1, 0.02), m);
     fin.rotation.y = -Math.PI / 2;
     fin.rotation.z = 0;
@@ -1158,14 +1214,19 @@ function makeJet() {
     holder.rotation.z = -s * 0.2;
     holder.add(fin);
     g.add(holder);
-    // Underwing missile and pylon.
-    const pyl = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.25, 1.4), dark);
-    pyl.position.set(s * 3.6, -0.2, -0.9);
+    // Underwing pylon with a long air-to-air missile, and a short one on the wingtip rail.
+    const pyl = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 1.6), m);
+    pyl.position.set(s * 3.4, -0.22, -0.9);
     g.add(pyl);
-    const msl = makeMissile();
-    msl.scale.setScalar(1.4);
-    msl.position.set(s * 3.6, -0.45, -0.7);
-    g.add(msl);
+    const aam = makeJetMissile(3.6, 0.1);
+    aam.position.set(s * 3.4, -0.5, -0.6);
+    g.add(aam);
+    const tipRail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 1.8), m);
+    tipRail.position.set(s * 6.7, 0, -1.7);
+    g.add(tipRail);
+    const tipMsl = makeJetMissile(2.6, 0.065, true);
+    tipMsl.position.set(s * 6.7, -0.1, -1.4);
+    g.add(tipMsl);
   };
   wing(-1); wing(1);
   // Bubble canopy with a frame bow.
@@ -1253,7 +1314,7 @@ function trapezoidProfile(r) {
   return pts;
 }
 
-function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x6f7378, plain = false, trapezoid = false } = {}) {
+function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x6f7378, plain = false, trapezoid = false, breach = false } = {}) {
   const profile = trapezoid ? trapezoidProfile(r) : null;
   const g = new THREE.Group();
   // `plain`: clean light-grey sheeting, without the rust streaks.
@@ -1321,18 +1382,51 @@ function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x
     else front = end;
     g.add(end);
   }
-  const door = new THREE.Mesh(new THREE.PlaneGeometry(r * 1.1, r * 0.75), new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.7, metalness: 0.4 }));
-  door.position.set(0, r * 0.375 + 0.3, len / 2 + 0.03);
+  // Half the end wall's width at height y, so the fittings on it stay inside its outline.
+  const halfAt = (y) => {
+    if (!trapezoid) return Math.sqrt(Math.max(0, r * r - y * y));
+    let best = 0;
+    for (let i = 1; i < profile.length; i++) {
+      const [x0, y0] = profile[i - 1], [x1, y1] = profile[i];
+      if ((y0 - y) * (y1 - y) <= 0 && y0 !== y1) best = Math.max(best, Math.abs(lerp(x0, x1, (y - y0) / (y1 - y0))));
+    }
+    return best;
+  };
+  const doorH = r * 0.75;
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(r * 1.1, 2 * halfAt(doorH + 0.3) - 0.5), doorH), new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.7, metalness: 0.4 }));
+  door.position.set(0, doorH / 2 + 0.3, len / 2 + 0.03);
   g.add(door);
-  const track = new THREE.Mesh(new THREE.BoxGeometry(r * 1.5, 0.12, 0.15), metal(0x2a2c30));
-  track.position.set(0, r * 0.75 + 0.36, len / 2 + 0.08);
+  const trackY = doorH + 0.36;
+  const track = new THREE.Mesh(new THREE.BoxGeometry(Math.min(r * 1.5, 2 * halfAt(trackY + 0.06) - 0.5), 0.12, 0.15), metal(0x2a2c30));
+  track.position.set(0, trackY, len / 2 + 0.08);
   g.add(track);
-  for (const s of [-1, 1]) {
+  const wins = [-1, 1].map((s) => {
     const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.6), new THREE.MeshBasicMaterial({ color: 0x3a3418 }));
-    win.position.set(s * r * 0.72, r * 0.42, len / 2 + 0.03);
+    win.position.set(s * Math.min(r * 0.72, halfAt(r * 0.42 + 0.3) - 0.75), r * 0.42, len / 2 + 0.03);
     g.add(win);
+    return win;
+  });
+  // `breach`: a second front wall with a wide arched hole where the door was, swapped in when
+  // the door is blown out.
+  let frontBlown = null;
+  if (breach) {
+    const hw = r * 0.78, hy = r * 0.4, ht = r * 0.3;
+    const sh = new THREE.Shape();
+    sh.moveTo(r, 0);
+    sh.absarc(0, 0, r, 0, Math.PI, false);
+    sh.lineTo(-hw, 0);
+    sh.lineTo(-hw, hy);
+    sh.absellipse(0, hy, hw, ht, Math.PI, 0, true);
+    sh.lineTo(hw, 0);
+    sh.closePath();
+    frontBlown = new THREE.Mesh(new THREE.ShapeGeometry(sh, 24), wall);
+    frontBlown.position.z = len / 2;
+    frontBlown.visible = false;
+    g.add(frontBlown);
   }
-  g.userData = { door, front, shell, ribs };
+  // Everything that goes when the door is blown out.
+  const frontParts = [front, door, track, ...wins];
+  g.userData = { door, front, shell, ribs, frontParts, frontBlown };
   if (!withLamp) {
     g.children.filter((c) => c.material?.color?.getHex() === 0x3a3418).forEach((c) => c.material.color.setHex(0x0c0c0e));
     door.material.color.setScalar(0.22);
@@ -1347,7 +1441,7 @@ function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x
   const pl = new THREE.PointLight(0xffe4a8, 25, 14, 1.4);
   pl.position.copy(lamp.position).add(new THREE.Vector3(0, -0.3, 0.6));
   g.add(pl);
-  g.userData = { door, front, shell, ribs };
+  g.userData = { door, front, shell, ribs, frontParts, frontBlown };
   return g;
 }
 
@@ -1843,29 +1937,49 @@ function placeMoon(moon, cam, sx, sy) {
 /** The perimeter wall: concrete panels between buttresses, chain-link and posts on top. */
 function makeWall(len) {
   const g = new THREE.Group();
-  const conc = new THREE.MeshStandardMaterial({ color: 0x4a4648, map: repeatOf(concreteTex, len / 6, 1), roughness: 0.95 });
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(len, 2.6, 0.4), conc);
-  wall.position.y = 1.3;
+  const conc = new THREE.MeshStandardMaterial({ color: 0x7a7678, map: repeatOf(concreteTex, len / 6, 1), roughness: 0.95 });
+  // A tall perimeter wall, as in the video: a plain face with a coping ledge along the top,
+  // square buttresses with sloped tops on the inner side, and a row of tall, thin poles along
+  // the top leaning outward, strung with a few strands of wire.
+  const WH = 5.0;
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(len, WH, 0.5), conc);
+  wall.position.y = WH / 2;
   g.add(wall);
-  for (let x = -len / 2; x <= len / 2; x += 3.2) {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.4, 0.9), conc);
-    b.position.set(x, 1.2, 0.5);
+  const coping = new THREE.Mesh(new THREE.BoxGeometry(len, 0.22, 0.8), conc);
+  coping.position.set(0, WH + 0.11, 0.05);
+  g.add(coping);
+  // The buttresses share one geometry: a box with its top sloping down toward the inside.
+  const bGeo = (() => {
+    const sh = new THREE.Shape();
+    sh.moveTo(0, 0); sh.lineTo(1.1, 0); sh.lineTo(1.1, 3.3); sh.lineTo(0, 4.3); sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.9, bevelEnabled: false });
+    geo.translate(0, 0, -0.45);
+    geo.rotateY(-Math.PI / 2);
+    return geo;
+  })();
+  const pole = new THREE.CylinderGeometry(0.05, 0.06, 3.8, 6).translate(0, 1.9, 0);
+  const poleMat = metal(0x5a5e63, 0.6, 0.5);
+  const tops = [];
+  let n = 0;
+  for (let x = -len / 2 + 1.6; x <= len / 2; x += 3.2) {
+    const b = new THREE.Mesh(bGeo, conc);
+    b.position.set(x, 0, 0.25);
     g.add(b);
-    // Blocky merlons along the top, as in the video.
-    for (const dx of [0, 1.6]) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.55), conc);
-      m.position.set(x + dx, 2.9, 0);
-      g.add(m);
-    }
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 5), metal(0x6a6e73));
-    post.position.set(x, 3.4, 0);
-    post.rotation.x = 0.25;
-    g.add(post);
+    // A pole over every other buttress.
+    if (n++ % 2) continue;
+    const p = new THREE.Mesh(pole, poleMat);
+    p.position.set(x + 1.6, WH + 0.2, -0.1);
+    p.rotation.x = -0.28;
+    g.add(p);
+    p.updateMatrix();
+    tops.push(V(0, 3.75, 0).applyMatrix4(p.matrix));
   }
-  const fence = new THREE.Mesh(new THREE.PlaneGeometry(len, 1.4), new THREE.MeshStandardMaterial({ map: repeatOf(fenceTex, len / 0.25, 1.4 / 0.25), alphaTest: 0.4, side: THREE.DoubleSide, metalness: 0.5, roughness: 0.5, color: 0x9a9ea4 }));
-  fence.position.set(0, 3.3, 0.1);
-  fence.rotation.x = 0.25;
-  g.add(fence);
+  // Faint wire strands between the poles, at three heights.
+  const wire = new THREE.LineBasicMaterial({ color: 0x24262a, transparent: true, opacity: 0.5 });
+  for (const f of [0.35, 0.65, 0.97]) {
+    const pts = tops.map((t) => V(t.x, lerp(WH + 0.2, t.y, f), lerp(-0.1, t.z, f)));
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wire));
+  }
   return g;
 }
 
@@ -2033,16 +2147,23 @@ function baseSet() {
   for (const [x, z, rr, len, sy] of [[-4.6, -20, 6.2, 22, 1.18], [5.8, -27, 6.0, 20, 1.22]]) {
     // (x, z) is the middle of the hut's front end; the body runs back from it.
     const cx = x - Math.sin(HUT_YAW) * len / 2, cz = z - Math.cos(HUT_YAW) * len / 2;
-    const hut = at(makeHangar(len, rr, { lamp: false, skin: 0x9a9ea8 }), M + cx, 0, cz, HUT_YAW);
+    const hut = at(makeHangar(len, rr, { lamp: false, skin: 0x9a9ea8, trapezoid: true }), M + cx, 0, cz, HUT_YAW);
     hut.scale.y = sy;
     // The moon is behind the huts, so each throws a long shadow toward the camera.
-    const shade = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: pondTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
-    shade.rotation.set(-Math.PI / 2, 0, 0.35);
-    shade.scale.set(rr * 2.6, rr * 2.2, 1);
-    shade.position.set(M + x + rr * 0.5, 0.03, z + rr * 0.9);
-    scene.add(shade);
+    hut.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   }
+  // The moon shot's moonlight, the one light there that casts shadows.
+  const moonShade = new THREE.DirectionalLight(0xb0b0e0, 0);
+  moonShade.position.set(M - 32, 52, -120);
+  moonShade.target.position.set(M + 3, 0, -24);
+  moonShade.castShadow = true;
+  moonShade.visible = false;
+  moonShade.shadow.mapSize.set(2048, 2048);
+  Object.assign(moonShade.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 10, far: 220 });
+  moonShade.shadow.bias = -0.0008;
+  scene.add(moonShade, moonShade.target);
   const moonTower = at(makeTower(), M + 11.5, 0, -35);
+  moonTower.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   // A big shed far back by the wall, its lamp high on the front near the right-hand end.
   const block = at(makeBunker(), M + 31, 0, -64, 0);
   block.scale.set(2, 2.6, 1.2);
@@ -2090,16 +2211,20 @@ function baseSet() {
 
   // Outside the hangar for the breakout.
   const O = SET.out;
-  const hangar = at(makeHangar(26, 8.5, { lamp: false, skin: 0x4a4c52 }), O, 0, -34);
+  const hangar = at(makeHangar(26, 8.5, { lamp: false, skin: 0x4a4c52, breach: true }), O, 0, -34);
   hangar.scale.y = 1.15;
   hangar.userData.door.material.color.setScalar(0.25);
-  const outTower = at(makeTower(), O + 10, 0, -21);
+  // Turned so one of its faces looks at the hangar, as in the video.
+  const outTower = at(makeTower(), O + 10, 0, -21, 0.66);
   const shed = at(makeBunker(), O + 17, 0, -16, -0.3);
   // A Nissen hut on the left, its end toward the camera, and the tanker in the foreground.
   at(makeHangar(16, 4.2, { lamp: false, skin: 0x9a9ea8, trapezoid: true }), O - 12, 0, -14, 0.05);
   at(makeWall(160), O, 0, -60);
   // The tanker from its rear quarter, heading away to the right.
-  const outTruck = at(makeTruck('tanker'), O - 6.2, 0, -4.5, 2.45);
+  // Its right side faces the hangar, so the blast throws it over onto its left side.
+  const outTruck = at(makeTruck('tanker'), O - 6.2, 0, -4.5, -1.95);
+  outTruck.rotation.order = 'YXZ';
+  outTruck.userData.home = outTruck.position.clone();
   // Moonlight from behind the tower, the one light here that casts shadows: the tower's lattice,
   // the hut, the shed and the tanker throw long shadows toward the camera.
   const outMoon = new THREE.DirectionalLight(0xb8c2e6, 0);
@@ -2153,17 +2278,19 @@ function baseSet() {
   scene.add(slab);
   const debris = [];
   for (let i = 0; i < 18; i++) {
-    const d = new THREE.Mesh(new THREE.BoxGeometry(0.3 + r() * 1.4, 0.05, 0.3 + r() * 1.1), new THREE.MeshStandardMaterial({ color: 0x9aa0aa, map: corrugated, roughness: 0.5, metalness: 0.5, side: THREE.DoubleSide }));
+    // Pieces of the door, blown out of the opening toward the camera and past it on all sides.
+    const d = new THREE.Mesh(new THREE.BoxGeometry(0.4 + r() * 1.6, 0.06, 0.4 + r() * 1.3), new THREE.MeshStandardMaterial({ color: 0x6a6e74, map: doorTex, roughness: 0.6, metalness: 0.4, side: THREE.DoubleSide }));
     d.visible = false;
-    d.userData = { p: V(O + (r() - 0.5) * 14, 2 + r() * 8, -22 + (r() - 0.5) * 6), v: V((r() - 0.5) * 34, 6 + r() * 20, 8 + r() * 26), w: V(r() * 9, r() * 9, r() * 9) };
+    d.userData = { p: V(O + (r() - 0.5) * 9, 0.6 + r() * 6, -20.6), v: V((r() - 0.5) * 30, 1 + r() * 15, 16 + r() * 18), w: V(r() * 9, r() * 9, r() * 9) };
     scene.add(d);
     debris.push(d);
   }
   const heli = makeHeli({ color: 0x3a3e44, skin: '#6a7078' });
-  heli.scale.setScalar(1.3);
+  // A little smaller than elsewhere, so its rotor clears the opening in the hangar's front.
+  heli.scale.setScalar(1.12);
   heli.visible = false;
   scene.add(heli);
-  return { scene, sky, moon, hemi, moonLight, frontLight, poolSpot, apronJets, apronTanker, pool, bunker, highWall, moonTower, moonTanker, block, hangar, outTower, shed, outLight, outMoon, fire, smoke, core, bloom, rays, fireRays, slab, debris, heli };
+  return { scene, sky, moon, hemi, moonLight, frontLight, poolSpot, apronJets, apronTanker, pool, bunker, highWall, moonTower, moonTanker, block, hangar, outTower, shed, outLight, outMoon, outTruck, moonShade, fire, smoke, core, bloom, rays, fireRays, slab, debris, heli };
 }
 
 // E-P: inside the hangar.
@@ -2585,9 +2712,10 @@ function duskSet() {
 /**
  * The SWIV 3D logo, traced from the video's logo frames (an average of frames 885-930 of
  * INTRO2, thresholded and traced): `outline` is the whole chrome silhouette including the 3-D
- * gunsight, `faces` the pale-blue letter faces. Units: the traced area is 1000 wide.
+ * gunsight; `faces` is that silhouette shrunk by the chrome border's width (about 3 video
+ * pixels), which gives the pale-blue letter faces. Units: the traced area is 1000 wide.
  */
-const LOGO_TRACE = {"w": 1000, "h": 312.5, "outline": "M343,14 346,14 349,14 351,15 352,15 354,16 358,16 364,16 374,16 386,15 395,15 402,14 406,14 408,14 409,14 410,15 411,15 411,17 411,19 409,23 407,27 405,30 404,33 404,35 404,36 403,38 403,39 402,41 401,43 399,49 395,57 390,68 383,83 378,94 374,103 372,109 371,112 369,115 368,119 366,123 363,127 361,131 360,134 359,136 359,137 358,139 357,140 357,141 356,142 355,144 354,144 354,145 354,146 354,147 354,148 355,148 356,149 357,149 359,149 361,149 363,149 365,148 366,148 367,147 367,146 368,145 368,144 368,143 368,141 369,139 370,137 372,134 374,130 376,126 379,120 382,113 384,108 386,104 387,102 387,101 388,100 388,99 389,98 389,97 390,94 391,91 393,88 396,83 398,79 399,75 401,71 401,68 403,64 405,60 408,54 411,48 413,42 415,39 416,36 416,35 417,34 417,33 418,33 419,32 419,31 419,30 419,29 419,27 420,25 421,23 422,20 423,18 425,16 426,15 428,15 430,14 432,14 435,14 437,14 439,14 441,15 442,15 443,15 445,16 450,16 457,15 465,15 473,15 479,14 485,14 489,14 493,14 495,15 496,15 497,15 496,17 495,20 494,23 491,28 489,32 488,35 487,37 486,40 484,45 481,52 477,61 473,68 471,74 469,78 468,81 467,84 466,86 465,87 465,88 464,89 464,90 463,91 463,92 462,95 461,99 458,104 455,111 452,117 450,121 449,123 449,124 449,125 448,126 447,128 446,130 445,132 444,134 442,137 441,140 440,142 439,144 439,146 439,147 439,148 440,148 441,149 442,149 443,149 445,149 446,149 447,149 448,149 449,148 450,148 451,148 451,147 452,146 452,145 452,143 452,141 454,139 455,136 458,132 459,128 460,126 461,124 461,123 462,121 462,120 463,119 464,118 464,117 465,116 465,115 465,113 467,109 470,102 475,91 482,78 487,66 491,56 494,49 496,43 498,39 500,36 501,34 502,33 503,32 504,31 504,29 504,28 504,26 504,24 505,22 506,20 507,18 508,16 509,15 511,15 512,15 515,15 517,14 520,15 523,15 525,15 526,15 526,16 530,16 538,16 550,15 565,15 576,15 584,15 588,15 589,15 589,16 590,17 589,18 589,20 588,21 587,23 586,25 585,27 584,28 584,29 584,30 583,31 583,32 582,34 581,36 580,38 579,41 578,44 575,49 572,56 567,66 562,78 558,87 555,93 553,97 553,98 552,101 550,105 548,111 544,118 541,124 540,128 539,131 539,133 538,134 538,135 538,136 537,136 536,137 536,138 536,139 535,140 535,142 533,144 531,147 528,151 526,154 524,158 522,161 521,164 519,167 517,170 514,173 512,176 508,179 504,182 500,185 495,189 490,192 485,195 479,198 473,200 467,202 461,204 454,205 448,207 441,208 435,208 430,209 425,209 411,210 389,210 358,210 318,209 287,209 264,209 249,209 243,209 238,209 234,209 232,209 230,210 229,210 227,210 226,210 224,210 222,209 221,209 220,208 219,207 220,206 221,205 223,205 225,204 226,203 227,202 228,201 229,200 232,198 235,196 239,194 242,191 245,189 247,188 247,186 249,185 250,183 251,182 253,180 255,179 257,177 258,175 260,173 262,170 264,167 266,163 269,159 272,154 274,148 277,142 280,134 283,128 285,123 287,120 288,117 290,115 290,113 291,111 291,110 292,109 292,106 294,104 295,101 297,98 297,96 298,95 298,94 298,92 299,90 300,88 302,85 304,81 306,76 309,70 311,64 313,59 315,55 316,53 317,52 318,50 319,47 321,43 324,38 326,33 327,30 328,27 328,25 329,24 330,22 330,20 331,19 332,18 333,17 334,16 336,15 338,14 340,14ZM789,14 790,14 791,14 792,15 793,16 793,17 793,19 793,20 792,22 792,23 791,24 790,25 789,27 788,29 786,33 785,37 782,44 778,53 773,63 767,76 763,86 760,93 759,97 758,98 758,99 758,100 757,101 756,101 755,103 754,106 752,110 750,115 748,120 746,125 743,130 741,135 739,139 737,142 736,145 736,146 736,147 737,148 738,148 740,149 741,149 743,149 745,148 747,148 748,147 749,146 749,144 749,143 749,142 750,140 751,139 752,138 753,138 753,137 754,136 754,135 754,133 755,130 757,127 759,123 761,119 763,114 765,109 767,104 770,97 773,89 778,79 783,69 787,59 791,52 793,47 794,44 795,41 796,39 797,37 797,36 797,35 798,34 799,33 800,32 800,31 801,31 801,30 801,29 801,27 801,25 802,23 803,20 805,18 806,16 807,15 809,15 810,15 813,15 815,14 818,15 821,15 822,15 824,16 825,16 831,16 841,16 857,16 878,15 894,15 905,15 911,15 911,16 912,17 912,18 911,20 911,22 909,24 907,28 905,32 902,36 900,41 898,46 896,51 894,55 893,58 892,60 891,61 890,62 889,64 888,66 888,69 886,72 885,75 883,78 881,81 879,85 877,88 875,91 874,95 873,97 872,99 871,101 870,101 869,103 867,106 865,109 862,114 859,119 855,125 850,131 845,137 839,143 834,148 830,152 825,156 820,161 814,165 807,170 799,175 792,180 785,184 778,187 771,190 764,193 757,196 750,198 742,200 734,202 723,204 712,206 699,207 687,209 675,209 665,210 654,210 646,210 641,210 637,209 635,209 633,209 631,209 629,209 627,209 624,210 619,210 613,210 606,210 600,210 596,209 594,209 594,208 594,207 594,206 595,205 597,204 599,204 602,203 605,201 609,199 613,196 617,192 621,189 624,187 625,185 626,184 627,182 629,180 630,179 633,177 635,174 638,171 640,167 643,162 646,158 648,155 649,152 650,151 651,149 652,147 652,146 652,144 653,143 654,141 655,138 656,136 658,133 659,130 660,127 661,125 662,121 664,117 666,113 669,108 671,103 672,100 673,98 673,97 674,96 674,94 676,91 677,88 679,86 679,84 680,82 680,81 681,79 682,76 684,72 687,68 689,64 691,60 692,57 693,54 693,51 695,48 696,45 697,43 699,40 700,38 700,37 700,35 701,34 702,33 702,32 703,31 704,30 704,29 704,28 704,27 705,25 705,24 706,22 707,20 708,19 709,17 710,16 711,15 713,15 715,15 718,14 722,14 725,14 727,15 729,15 731,16 736,16 743,16 754,16 768,15 778,14 785,14ZM311,14 314,15 317,15 319,15 320,16 320,17 320,18 320,19 319,20 318,21 317,22 317,24 317,25 317,27 316,29 315,31 314,33 312,36 311,39 310,41 309,42 309,43 309,45 308,47 307,49 305,52 304,54 303,57 303,58 302,60 302,62 301,63 300,65 299,66 290,67 274,68 250,68 218,68 195,68 178,69 170,69 169,69 169,70 169,71 169,72 169,73 169,74 168,75 168,76 167,77 167,79 167,80 168,80 168,81 169,81 170,81 171,81 172,81 180,80 195,80 217,80 246,80 268,80 283,80 290,81 291,81 292,82 292,83 292,84 292,85 292,86 291,87 290,88 289,89 288,90 288,91 288,92 287,94 286,97 284,100 282,104 280,107 279,110 278,112 278,113 277,115 277,117 275,119 274,122 272,126 271,129 270,132 269,136 268,139 267,141 265,144 264,146 262,147 261,149 261,150 260,151 260,152 259,153 259,154 258,154 257,156 255,158 253,161 251,166 248,170 245,173 242,177 238,181 234,184 231,187 227,189 224,191 221,193 217,195 213,197 209,199 205,200 200,202 196,203 191,204 186,205 182,206 177,207 172,208 167,208 162,209 156,209 150,210 139,210 124,210 103,210 77,210 57,210 43,210 34,209 31,209 29,209 26,209 24,209 21,209 20,209 19,209 18,209 17,208 17,207 17,206 17,205 18,203 19,202 20,200 21,198 21,197 20,195 20,193 21,191 22,189 24,187 25,184 27,182 28,179 28,177 29,175 30,173 31,172 31,171 32,170 33,168 33,167 33,165 34,163 35,161 37,159 39,157 41,155 42,154 43,154 45,154 46,154 47,154 49,154 50,154 52,154 53,154 54,154 55,154 56,155 58,155 59,154 61,154 67,154 78,153 95,153 116,153 132,153 143,153 149,154 151,154 152,154 155,154 158,154 162,154 164,153 167,152 168,151 168,149 169,148 170,147 171,146 172,145 172,144 173,144 172,143 172,142 171,142 170,142 163,141 148,141 127,141 98,141 77,141 61,141 52,141 49,140 47,140 46,139 45,139 45,138 45,137 46,136 47,135 48,134 48,132 49,130 50,127 51,125 51,124 52,122 53,122 54,120 56,117 58,112 60,107 62,103 63,99 65,95 65,93 66,90 68,87 69,84 71,81 73,79 74,77 74,75 75,73 76,71 77,69 78,67 80,65 81,62 83,59 86,57 88,54 90,52 92,50 92,49 93,48 93,47 95,46 97,44 99,42 101,40 103,39 105,38 106,38 108,37 109,36 110,35 112,34 113,32 115,31 118,30 120,28 123,27 125,26 127,26 128,25 130,25 131,25 133,24 134,25 135,24 137,24 138,23 140,21 142,20 145,20 149,19 153,19 156,19 158,19 160,18 162,17 163,17 166,16 169,16 171,16 174,16 176,16 178,16 180,17 181,18 181,19 181,20 180,21 180,22 179,23 178,23 177,24 177,25 177,26 178,27 179,27 186,27 200,27 220,27 246,27 267,27 280,27 288,27 290,27 291,26 292,25 293,23 295,20 296,18 298,17 300,16 302,15 305,15 308,15ZM610,14 613,14 616,14 618,15 619,15 620,16 626,16 635,16 650,16 668,15 682,15 692,15 697,15 698,16 698,17 698,18 698,20 697,21 696,23 694,26 692,28 691,31 689,35 688,38 687,41 686,43 685,44 684,45 678,45 667,45 651,46 630,46 614,45 603,45 598,45 597,44 596,44 594,44 593,44 591,44 590,44 590,43 589,42 589,41 590,40 590,39 591,38 592,37 593,35 594,33 595,30 596,28 597,26 598,24 599,23 600,22 600,21 600,20 600,19 601,17 601,16 602,16 603,15 605,15 607,14ZM596,58 597,58 599,59 602,59 606,58 610,58 617,58 627,57 639,57 654,57 666,57 673,58 677,58 678,58 678,59 678,60 677,62 676,63 676,65 675,66 675,68 675,69 674,71 674,73 672,75 671,78 668,82 666,88 662,96 658,105 655,112 653,118 650,122 649,125 648,127 647,129 647,131 646,133 646,135 645,137 644,139 642,141 641,143 640,145 640,146 639,147 639,149 638,150 637,152 636,153 635,155 634,157 633,158 633,159 632,161 629,164 625,169 619,175 614,181 610,185 606,188 602,191 598,193 594,195 590,197 586,199 581,201 575,202 567,204 559,206 549,207 537,208 524,209 509,209 498,209 490,208 487,208 487,206 488,205 490,204 493,203 496,201 499,200 502,198 505,195 508,193 510,191 513,189 514,188 516,188 517,187 519,185 520,184 522,182 523,181 524,179 524,178 524,177 525,176 526,175 527,174 528,172 529,171 529,170 530,169 531,167 533,164 535,160 539,155 541,152 543,149 544,146 544,145 545,143 546,141 547,138 549,135 551,131 553,125 556,120 558,113 561,107 562,103 564,101 564,100 565,99 565,98 566,97 566,95 567,92 569,89 571,85 573,82 574,80 574,78 574,77 575,76 575,75 576,74 577,73 577,72 578,71 578,69 579,68 579,66 580,65 581,63 583,61 584,60 586,59 588,58 590,58 592,58 594,58ZM900,118 901,118 902,118 903,119 904,120 905,122 905,126 905,130 905,137 906,141 907,144 908,146 910,146 912,147 915,148 917,148 921,150 924,151 927,152 930,154 933,156 936,158 939,160 942,162 945,165 947,168 950,171 952,175 954,179 956,184 958,188 959,192 960,197 960,200 961,202 961,204 962,204 963,204 966,204 971,204 977,204 981,205 984,205 986,205 986,206 987,206 987,207 987,209 987,210 986,212 986,213 985,214 984,214 981,214 978,214 973,214 969,215 966,215 965,215 963,215 962,217 961,219 960,223 959,228 958,232 956,236 954,241 952,245 950,249 948,252 946,254 945,255 943,257 940,259 936,262 931,265 926,268 921,270 917,272 912,273 909,275 906,279 905,284 905,290 905,295 904,298 904,300 903,301 902,302 901,302 900,302 899,302 898,301 897,301 897,300 896,298 896,295 895,290 895,283 894,278 892,275 889,272 885,271 880,269 876,267 871,264 865,260 861,256 856,251 852,245 849,239 846,233 844,229 843,224 842,221 841,218 838,216 834,216 829,215 825,215 821,216 818,216 817,216 815,216 814,216 812,216 811,215 810,214 810,213 809,211 809,210 809,209 809,208 810,207 810,206 811,205 813,205 817,205 822,204 829,204 834,204 838,204 840,204 841,204 841,203 842,201 842,200 842,197 843,195 843,192 844,190 845,187 847,184 849,180 852,176 855,171 858,167 861,163 865,160 869,157 873,155 877,152 882,150 888,148 892,145 894,141 896,136 896,130 896,125 896,122 897,120 898,119 899,118ZM906,157 905,161 905,166 905,175 905,186 905,195 906,201 907,204 908,204 909,204 910,204 911,204 911,203 911,201 911,198 911,195 912,192 915,191 919,190 925,190 929,190 932,190 935,190 936,191 938,191 939,192 941,194 943,195 945,197 946,198 947,200 947,203 948,206 948,209 947,213 946,217 945,221 944,224 943,226 942,227 941,228 940,229 939,230 938,231 936,231 932,231 928,231 922,232 917,232 914,231 912,231 912,230 911,229 911,227 911,224 911,221 911,218 910,216 909,215 908,215 907,215 906,215 905,216 905,219 905,225 905,233 905,245 905,254 906,260 906,263 907,263 908,263 910,263 912,263 914,262 916,261 919,260 922,259 925,257 928,255 931,253 934,250 938,246 940,243 942,241 944,238 945,236 946,235 946,233 947,231 947,230 947,228 948,227 948,225 949,224 950,222 950,218 950,214 951,209 951,204 950,201 950,198 949,197 948,195 948,193 947,191 947,189 947,188 946,186 946,184 945,182 943,180 941,177 939,174 936,171 933,168 929,166 926,163 921,161 918,160 914,158 912,157 910,157 908,157 907,157ZM885,160 881,162 876,164 872,167 869,170 865,173 862,176 860,180 857,183 856,187 854,191 853,195 852,198 851,202 851,207 851,212 852,217 853,223 854,228 856,233 857,236 859,239 861,242 863,245 866,248 869,251 872,254 875,256 878,258 881,260 884,261 887,262 889,262 891,262 893,262 894,262 895,262 895,259 895,253 896,244 896,232 896,223 895,217 895,214 894,213 893,213 892,213 891,214 891,215 892,216 892,217 892,218 892,219 891,221 890,222 890,224 889,226 887,227 886,228 885,229 883,229 881,230 880,230 877,230 874,231 871,230 867,230 864,230 862,229 860,228 859,227 859,226 858,225 858,224 858,223 858,222 858,221 859,220 860,219 861,219 862,218 864,219 867,219 869,219 870,219 872,219 872,218 873,218 873,217 873,216 873,215 871,215 870,215 868,214 866,214 865,214 864,213 864,212 863,211 863,210 863,208 864,207 865,206 867,205 869,205 871,204 872,204 873,203 873,202 873,201 872,200 871,199 869,199 868,199 866,199 865,199 864,200 863,200 862,200 861,200 860,199 859,198 859,197 858,195 858,194 858,192 859,191 860,191 861,190 863,189 865,188 868,188 871,188 874,188 877,188 879,188 882,189 884,190 886,191 888,193 889,194 890,196 891,198 891,201 892,203 892,204 893,204 894,204 895,201 895,195 896,186 896,175 895,166 895,161 894,158 893,157 891,158 889,159Z", "faces": "M217,36 242,36 261,37 275,37 282,37 283,38 283,39 283,40 283,42 283,44 276,45 262,46 241,47 214,47 194,47 179,47 171,48 170,48 168,49 167,49 166,50 166,52 165,53 164,53 163,54 162,54 161,54 160,55 159,56 159,58 158,59 158,60 157,60 156,60 156,59 155,58 155,57 155,56 155,55 154,55 153,55 152,55 151,56 150,57 149,58 149,59 148,61 147,63 147,65 146,67 146,71 146,75 146,79 146,83 146,87 146,90 146,93 147,95 147,97 148,98 148,99 150,100 154,100 159,101 165,102 170,102 173,102 175,101 175,100 175,99 176,98 177,98 181,97 187,97 195,97 206,97 214,98 220,98 223,98 224,98 224,99 224,100 224,101 226,102 230,103 236,104 244,104 249,104 253,105 255,106 255,107 254,109 253,112 252,116 250,120 248,123 247,126 247,128 247,129 246,130 245,132 244,135 242,138 240,140 239,142 239,144 239,146 238,147 238,148 237,148 236,148 234,149 233,151 232,152 231,154 230,155 230,157 230,158 230,159 231,159 232,159 233,159 233,160 234,160 234,161 232,163 230,165 226,168 221,172 217,175 214,177 212,178 211,178 210,179 209,179 207,180 206,181 203,182 200,183 196,184 190,185 178,186 159,187 133,187 101,187 77,187 60,186 53,184 53,182 53,180 54,179 55,178 56,177 57,176 58,175 58,174 58,173 64,172 75,171 93,171 115,171 133,172 144,172 150,173 150,174 151,175 153,176 156,176 160,176 163,176 167,176 170,175 174,174 177,173 179,172 182,171 184,170 185,169 187,167 188,165 189,162 190,159 191,156 191,151 192,146 192,141 192,137 191,133 191,130 190,128 189,126 188,124 188,123 180,122 167,121 147,121 120,120 101,120 87,119 81,118 81,117 82,114 84,110 87,103 91,94 96,86 100,79 104,73 109,67 113,63 117,59 121,55 125,52 129,50 133,48 137,46 141,44 145,43 151,41 158,40 166,38 179,37 196,37ZM359,37 364,37 368,37 370,37 372,38 373,38 373,39 373,40 371,46 366,58 359,74 349,96 342,115 337,131 334,143 334,153 335,160 336,164 337,167 339,167 341,167 342,168 344,168 345,169 348,170 351,170 356,170 362,170 367,170 371,170 374,169 376,169 378,168 380,167 382,166 383,165 388,156 396,140 406,116 420,85 432,61 441,45 447,38 451,37 454,38 456,38 457,39 457,40 455,44 452,52 447,63 440,77 436,88 432,96 431,100 431,102 430,104 429,107 427,110 424,115 422,120 420,124 419,128 418,132 417,137 417,142 417,149 417,156 419,162 421,166 425,168 429,169 434,170 438,170 443,170 447,170 452,170 456,169 460,167 463,166 469,156 478,140 489,116 503,85 513,62 520,46 524,38 525,38 527,38 530,37 534,37 539,37 544,37 547,38 549,38 550,39 551,39 551,40 552,41 551,42 551,43 550,44 549,46 548,47 548,48 548,49 548,50 547,52 546,55 544,59 541,64 539,68 537,72 536,76 535,79 535,81 534,83 533,84 532,85 531,87 530,89 529,91 528,94 527,97 526,100 524,103 523,106 521,109 520,112 519,115 518,118 517,122 514,127 510,134 505,142 501,148 499,152 497,155 497,156 498,156 498,157 499,157 500,157 501,158 501,159 501,160 500,161 499,162 497,164 494,167 491,169 488,171 484,172 480,174 477,175 474,177 473,178 472,179 469,181 462,182 453,184 441,186 423,187 399,188 370,188 336,188 310,188 292,188 284,187 283,186 284,184 286,179 289,174 294,166 300,153 308,136 319,112 331,84 340,63 347,48 350,40 351,39 353,38 356,38ZM738,38 745,38 749,40 751,43 751,47 749,53 747,59 744,64 742,69 740,74 738,78 737,81 736,83 736,84 734,88 732,94 728,103 723,114 719,124 716,134 715,144 716,152 716,159 717,164 718,167 719,168 720,168 723,169 726,170 730,170 735,170 740,170 745,170 750,169 754,168 758,167 762,166 764,164 769,156 776,140 786,119 799,90 808,68 815,53 820,44 821,41 825,39 832,38 841,37 853,37 861,38 867,38 871,40 871,41 870,45 867,51 863,60 858,70 852,80 847,90 841,98 836,106 831,112 829,116 827,119 827,120 827,121 828,121 829,122 830,122 831,122 831,123 830,125 828,127 826,130 823,133 820,136 817,139 814,142 812,144 809,146 808,147 806,147 805,148 804,148 803,149 802,150 801,152 799,153 797,154 795,155 792,156 790,157 788,158 786,159 785,161 784,162 783,163 782,163 781,163 780,164 779,164 777,165 776,166 774,168 769,170 763,173 755,176 746,178 736,181 724,183 710,185 698,186 687,188 678,188 671,188 665,188 661,188 659,187 659,186 660,184 662,180 665,174 669,168 674,157 681,143 689,125 698,102 706,84 713,69 718,57 722,49 727,43 732,39ZM606,75 607,75 608,75 608,76 609,76 609,78 611,79 615,79 621,79 629,79 634,80 638,82 640,84 639,86 638,90 636,94 634,98 632,103 629,108 628,111 626,115 626,117 624,122 621,127 617,134 612,143 609,150 607,155 606,158 606,160 606,162 605,164 604,165 602,167 600,168 598,169 595,170 593,171 591,172 589,173 588,174 588,175 587,175 586,176 585,176 584,176 583,177 582,177 581,178 580,179 578,180 574,181 569,182 562,184 556,184 553,184 551,184 551,183 552,181 554,177 557,172 561,165 566,156 572,144 578,128 586,110 592,97 597,87 600,82 601,81 603,80 604,78 604,77 605,76 605,75 606,75Z"};
+const LOGO_TRACE = {"w": 1000, "h": 312.5, "outline": "M343,15 347,15 350,16 353,16 354,17 355,18 355,20 355,21 354,23 354,25 355,26 355,27 356,27 357,28 360,28 364,28 369,28 373,27 376,27 377,25 378,24 378,22 379,21 380,19 380,18 381,17 382,17 383,16 384,16 386,16 389,16 394,15 400,15 405,15 408,15 410,15 411,16 411,17 410,18 410,20 408,22 407,24 406,28 404,32 403,37 400,45 396,55 390,67 384,82 378,94 374,103 372,109 371,112 369,116 367,120 365,124 363,128 361,131 359,134 359,136 359,137 358,138 357,139 356,141 355,142 354,144 354,145 354,146 354,147 355,148 356,148 357,149 359,149 361,149 363,149 364,148 366,148 367,147 368,146 368,144 368,143 368,141 369,140 370,139 371,138 375,131 381,118 389,100 400,76 408,57 413,45 416,38 416,37 416,35 417,34 418,33 419,32 420,31 420,30 420,29 420,28 420,26 421,25 421,23 421,21 422,20 423,18 423,17 424,17 424,16 425,16 426,15 428,15 429,15 432,15 434,15 437,15 440,15 441,16 442,16 443,17 443,18 443,19 443,21 443,23 443,25 443,26 444,27 444,28 446,28 448,28 451,28 455,28 458,27 460,27 461,25 461,23 462,22 463,20 464,19 465,18 468,17 472,16 477,15 484,15 489,15 493,15 495,15 496,15 493,23 487,36 479,57 467,84 458,105 451,119 447,128 446,130 444,132 444,134 443,136 442,137 442,139 441,141 440,142 439,143 438,144 438,145 438,146 438,147 439,147 440,148 441,148 443,149 445,149 447,149 448,148 450,148 451,147 452,146 453,144 453,143 453,141 454,140 455,139 456,138 457,137 457,136 458,135 458,133 458,132 459,131 460,130 461,129 461,127 462,126 462,125 462,124 465,118 470,107 477,92 486,71 493,56 497,45 500,38 500,37 500,35 501,34 502,33 503,33 504,32 504,31 504,30 504,28 504,27 504,25 505,23 505,21 505,20 506,19 506,18 507,17 508,16 509,16 510,15 511,15 513,15 515,15 518,15 521,15 523,16 525,16 526,17 527,17 527,18 527,20 527,21 527,23 527,25 527,26 527,27 528,28 530,28 533,28 538,28 544,28 550,27 553,26 555,24 556,22 557,20 558,19 559,18 560,17 562,16 566,16 571,15 577,15 582,15 586,16 588,16 588,17 588,18 588,20 587,21 585,23 584,24 584,26 583,27 584,28 583,29 583,30 582,32 581,33 579,37 576,43 572,52 567,63 563,74 559,83 556,90 553,97 550,103 548,109 545,115 543,120 540,125 538,129 537,133 536,136 534,140 533,143 530,147 528,150 525,153 523,156 522,159 521,162 520,164 518,167 516,170 514,173 511,176 507,179 502,183 497,187 491,191 485,194 479,197 472,200 465,202 456,204 446,206 435,208 418,209 394,209 363,210 325,210 295,210 273,210 259,209 253,209 248,209 244,209 242,208 240,207 238,207 235,208 232,208 229,209 227,209 225,209 223,209 222,209 221,208 220,207 221,207 221,206 222,205 224,205 226,204 227,203 228,202 229,201 230,200 232,199 233,198 235,197 237,196 239,195 241,193 243,192 244,190 246,189 247,188 248,186 249,184 251,183 253,180 255,178 258,175 261,172 263,169 266,165 270,156 277,143 285,125 294,103 303,83 310,67 317,54 322,43 325,35 328,29 329,26 330,24 330,23 330,22 331,20 331,19 332,18 333,17 334,16 335,15 337,15 340,15ZM611,15 614,15 617,16 618,16 620,17 621,18 621,19 621,20 621,21 621,22 621,23 622,23 625,24 630,24 638,24 648,24 656,24 662,23 665,22 666,20 667,18 669,17 672,16 676,16 679,15 682,15 686,15 690,15 693,15 695,15 696,15 697,16 697,17 697,18 697,20 696,21 695,23 693,26 692,29 690,31 689,35 687,38 686,41 685,43 684,44 683,45 677,45 667,45 651,46 631,46 615,45 604,45 599,45 598,44 597,44 596,44 595,44 593,44 592,44 591,44 590,43 590,42 590,41 591,39 592,38 593,37 594,35 594,33 595,30 596,28 597,26 598,25 599,24 600,23 600,21 601,20 601,19 601,18 602,17 602,16 604,15 605,15 608,15ZM719,15 723,15 726,16 728,16 729,17 730,17 730,18 730,20 730,22 730,24 730,26 730,27 731,28 733,28 736,28 741,28 748,28 753,28 756,28 758,27 759,26 759,25 759,24 760,22 760,21 761,19 762,18 764,17 766,16 770,16 775,15 781,15 786,15 789,15 791,15 792,16 790,21 786,32 780,48 771,68 764,86 757,100 753,111 749,118 746,124 744,128 743,131 742,132 741,133 740,134 740,135 740,137 739,138 738,139 738,141 737,142 736,143 735,144 735,145 735,146 735,147 736,148 737,149 738,149 740,149 742,149 744,149 745,149 746,149 748,148 749,146 749,145 750,143 750,142 751,140 752,139 754,139 755,138 755,136 755,135 755,133 757,128 761,118 767,105 775,88 781,74 786,62 790,53 793,46 795,40 797,36 799,33 800,32 801,31 801,30 801,29 801,28 801,26 802,25 802,23 803,21 804,20 804,18 805,17 806,16 807,16 808,15 810,15 812,15 814,15 816,15 818,15 820,15 822,16 824,16 824,17 825,17 825,18 825,20 825,21 825,23 825,25 825,26 825,27 826,28 829,28 835,28 844,28 856,28 865,28 872,28 875,28 875,27 876,27 876,26 877,24 877,22 878,21 879,19 880,18 882,17 884,16 888,16 894,15 900,15 905,15 908,15 910,15 910,16 911,16 911,17 911,18 911,19 910,21 909,23 907,27 905,31 902,36 899,43 895,50 892,58 889,65 886,71 883,76 881,80 879,84 877,87 875,90 874,94 873,97 871,99 870,101 868,103 867,105 865,108 863,111 861,115 858,120 852,127 846,134 838,143 829,152 821,159 812,166 803,172 794,178 786,183 778,187 771,190 764,193 757,196 750,198 742,200 735,202 728,204 721,205 715,206 708,207 702,208 695,208 688,209 681,209 673,209 663,210 653,210 646,210 640,209 636,209 634,209 632,208 630,208 627,209 624,209 620,209 616,209 610,209 604,209 600,209 596,208 595,208 595,207 595,206 596,206 597,205 598,204 600,204 602,203 605,202 608,200 612,197 616,194 620,191 623,189 624,187 626,185 627,183 629,181 630,179 633,177 635,175 637,172 640,169 642,165 645,161 647,158 649,155 650,153 651,150 652,148 653,146 653,145 654,141 656,135 660,127 665,117 670,108 673,100 676,94 678,88 680,83 682,78 685,73 687,69 690,64 692,59 694,54 695,49 697,44 699,40 701,37 703,34 704,31 705,29 705,27 706,26 706,24 706,23 707,21 708,19 709,18 710,17 711,16 712,15 714,15 716,15ZM317,15 318,15 319,16 319,17 319,18 319,20 318,21 317,22 316,24 315,25 315,26 315,28 315,29 314,31 313,33 312,36 310,38 309,41 308,44 307,47 306,49 306,51 305,53 304,54 303,55 302,57 302,59 301,61 301,63 300,64 299,66 298,67 290,67 273,68 249,68 217,69 193,69 176,71 168,73 167,76 167,78 167,79 167,80 168,81 169,81 170,82 171,81 173,81 174,81 176,80 179,80 182,80 189,80 201,80 218,80 239,80 256,80 269,80 278,80 282,80 285,80 288,81 290,81 291,82 291,83 292,84 292,85 291,86 291,87 290,88 288,89 287,91 286,92 285,94 285,96 284,99 282,103 279,109 276,115 273,121 271,126 270,131 269,134 268,138 266,141 264,144 262,147 261,150 259,152 258,154 257,155 255,156 254,158 253,160 253,162 251,164 249,167 246,171 243,175 239,179 235,183 231,186 226,189 221,192 216,195 211,198 205,200 200,202 197,203 194,203 192,203 190,204 189,204 187,205 185,205 182,206 180,206 177,207 175,207 172,207 168,207 165,208 161,208 150,209 134,209 111,210 82,210 60,210 46,209 38,209 37,209 35,208 33,208 30,208 26,209 23,209 21,209 19,209 19,208 18,208 18,207 18,206 18,205 18,204 19,203 20,201 21,200 21,198 21,197 21,195 21,193 22,191 23,189 24,187 26,185 27,182 29,179 30,176 31,173 32,170 33,168 33,166 34,164 35,162 37,160 39,157 41,155 43,154 46,154 48,154 50,154 52,154 53,154 54,155 55,155 57,155 59,155 61,154 67,154 79,153 95,153 115,153 131,153 142,154 148,154 150,154 152,155 155,155 158,154 161,154 164,153 167,152 169,150 170,148 172,146 172,145 173,144 173,143 172,143 171,142 163,141 148,141 127,141 99,141 78,141 62,141 53,140 50,140 49,136 50,130 53,121 58,110 63,99 67,90 72,81 76,73 80,66 83,61 86,57 89,55 91,52 92,50 93,49 94,48 95,46 97,45 98,43 100,42 102,41 104,40 106,39 107,39 109,38 110,37 111,36 113,34 114,32 116,31 118,30 119,29 121,28 123,28 124,27 125,27 125,28 126,28 127,28 128,29 129,29 130,29 130,28 131,28 131,27 132,26 134,25 135,25 137,24 138,23 140,22 141,21 143,20 146,20 149,20 153,20 156,19 158,19 160,19 161,18 163,17 164,17 166,16 168,16 170,16 172,16 173,16 175,16 176,16 178,16 179,17 180,17 180,18 180,19 180,20 179,21 178,22 177,23 177,24 176,24 176,25 176,26 176,27 177,27 177,28 184,28 198,28 218,28 244,28 265,28 279,27 288,27 290,27 292,26 293,25 295,23 296,21 297,20 298,18 299,17 301,16 303,16 306,15 310,15 313,15 315,15ZM595,58 597,59 598,59 600,59 602,59 604,59 608,58 614,58 622,58 633,58 643,58 652,58 660,58 666,58 672,58 675,58 677,58 677,59 678,59 678,60 678,61 677,62 677,63 676,64 675,65 674,66 674,67 674,69 674,70 673,72 672,73 671,75 670,78 667,82 664,89 660,99 655,110 651,119 648,126 646,131 646,132 645,136 643,140 640,146 636,153 632,159 627,166 623,171 617,177 613,182 609,186 605,189 602,191 598,193 594,195 589,197 585,199 579,201 573,203 566,205 558,206 548,207 537,208 525,209 510,209 500,209 492,209 489,208 488,207 488,206 489,205 490,204 492,204 494,203 497,201 500,199 504,196 509,193 515,188 520,184 524,180 526,176 528,173 530,169 533,165 536,160 539,155 542,151 544,148 545,146 545,144 547,139 551,131 556,119 563,104 569,92 573,82 576,76 577,72 578,69 580,66 581,64 583,63 584,61 586,60 588,59 590,59 592,58 594,58ZM900,118 901,118 902,119 903,119 904,120 904,122 904,125 905,130 905,136 906,141 908,145 910,147 914,148 918,149 922,150 926,152 929,154 933,156 936,158 939,160 941,162 943,164 945,166 947,168 949,170 950,172 951,174 953,176 954,178 955,181 956,185 957,190 959,195 960,199 961,202 961,203 962,204 963,204 966,204 970,204 975,204 979,204 982,205 984,205 985,206 986,206 986,207 987,208 987,209 986,210 986,211 985,212 985,213 983,213 980,214 977,214 972,214 968,214 965,214 964,215 963,215 962,217 961,219 960,223 958,228 957,232 954,237 952,243 948,248 945,253 940,258 936,262 931,265 926,268 921,270 917,271 913,272 910,273 908,274 906,274 906,275 905,276 905,279 905,284 905,290 904,294 904,298 904,300 903,300 902,301 901,301 900,301 899,301 898,301 897,300 896,298 896,294 896,289 896,283 894,278 892,274 889,272 884,271 879,269 875,266 870,263 865,260 861,256 857,251 853,245 849,239 846,233 845,229 844,226 843,223 843,221 843,219 843,218 842,217 841,216 838,216 835,215 830,215 826,215 822,215 820,215 817,216 816,216 814,216 813,215 812,215 811,214 811,213 810,213 810,212 810,211 810,210 810,209 810,208 810,207 811,206 812,206 814,205 817,205 822,204 828,204 833,204 837,204 839,204 840,203 841,202 842,201 842,199 843,197 843,195 843,193 844,190 845,188 846,185 848,182 851,178 853,173 856,169 859,165 863,162 866,159 869,157 872,155 875,153 878,152 880,150 883,149 887,148 890,147 893,145 895,142 896,137 896,131 896,126 896,123 897,121 898,120 898,119 899,119ZM885,160 880,162 876,164 872,166 868,169 865,173 862,176 860,179 857,183 856,186 854,190 853,194 852,198 851,202 851,206 850,210 851,215 851,219 852,223 852,226 853,229 854,231 855,233 857,237 860,241 864,247 868,251 872,255 876,257 880,259 883,260 887,261 889,262 891,262 893,262 894,262 895,262 896,258 896,252 896,243 896,231 895,222 895,216 894,213 893,213 892,213 891,214 891,216 891,217 891,219 890,221 889,223 888,225 886,226 884,228 881,229 878,230 874,230 870,230 868,230 865,230 864,230 862,229 861,228 860,227 860,226 859,225 859,224 859,223 859,222 859,221 859,220 860,219 861,219 862,219 864,219 866,219 868,219 870,219 871,219 872,218 873,218 873,217 873,216 872,215 871,215 870,214 867,213 866,212 865,211 864,210 864,209 864,208 864,207 864,206 865,205 866,205 867,204 868,204 870,204 871,204 872,203 873,203 873,202 873,201 872,200 871,199 870,199 868,199 866,198 863,198 862,198 860,197 859,196 859,195 859,193 859,192 859,191 860,191 861,190 863,189 865,189 867,188 870,188 873,188 876,188 879,189 882,189 884,190 886,192 888,194 889,195 890,197 891,199 891,201 891,202 892,203 892,204 893,204 894,204 895,204 895,203 896,200 896,194 896,186 896,175 896,167 895,161 894,158 893,157 891,157 889,158ZM906,157 905,158 905,161 905,167 905,175 905,187 905,195 905,201 905,204 906,204 907,205 908,204 909,204 910,203 910,202 911,199 911,197 911,194 911,192 912,191 914,190 917,190 921,190 926,190 930,190 934,191 938,192 940,194 943,196 945,198 946,200 947,203 947,206 947,209 947,213 946,217 945,221 944,223 943,225 942,227 941,228 940,229 939,229 938,230 936,230 932,231 928,231 922,231 918,231 915,231 913,230 912,230 912,228 911,227 911,224 911,221 911,218 911,217 910,215 909,215 908,215 907,215 906,215 906,219 905,225 905,233 905,245 905,253 905,259 905,262 906,263 907,263 908,263 910,263 913,262 917,260 922,258 927,255 931,252 935,249 938,246 940,243 942,241 944,238 945,236 946,234 947,232 948,229 949,226 950,223 950,219 951,214 951,209 951,204 950,199 949,194 947,189 945,184 943,180 940,176 937,173 934,170 930,167 926,164 922,162 918,160 915,158 912,157 910,157 909,157 907,157Z", "faces": "M435,21 436,21 437,22 438,24 438,26 438,28 438,30 438,31 439,32 439,33 441,33 444,33 449,33 455,33 460,33 464,31 467,29 468,26 470,24 473,22 477,21 481,21 481,27 478,39 471,58 460,82 451,102 444,117 440,127 437,132 435,136 433,141 432,144 433,148 433,150 434,152 436,153 438,154 440,154 442,154 445,155 448,155 451,154 453,154 455,154 456,153 457,152 457,151 458,150 458,148 458,147 459,146 460,145 461,144 464,138 469,127 476,112 485,92 492,76 497,64 500,56 502,52 503,49 504,46 505,44 505,42 505,41 506,39 507,39 508,38 509,37 510,35 510,32 511,29 511,26 511,24 512,23 512,22 513,22 514,21 515,21 517,21 518,21 519,21 520,21 521,22 521,24 521,26 521,28 521,30 522,31 522,32 522,33 525,33 529,33 536,33 545,33 552,33 557,31 560,29 562,26 564,24 566,23 569,22 573,21 575,21 577,22 578,22 578,24 577,27 574,34 569,44 563,56 557,69 551,83 545,97 539,112 534,124 529,134 526,140 523,144 520,148 518,151 517,154 516,156 515,159 513,162 510,166 507,169 503,173 498,177 493,181 487,185 481,189 476,192 471,194 466,196 461,197 455,199 450,200 444,201 438,202 432,203 427,203 422,204 409,204 389,204 361,204 326,204 298,204 278,204 264,204 258,204 253,204 249,204 247,203 246,202 246,201 248,197 252,193 257,188 261,182 266,177 270,172 273,166 277,159 282,149 288,136 294,121 301,106 308,90 315,74 323,58 328,45 332,36 335,31 335,29 335,28 336,26 337,25 338,23 340,22 341,21 343,21 346,21 347,22 348,24 349,26 349,28 349,30 349,31 350,32 350,33 353,33 357,33 363,33 370,33 376,33 380,32 382,31 383,29 383,27 384,26 385,25 386,23 387,23 390,22 392,21 396,21 398,22 399,24 399,28 398,32 395,40 391,49 385,62 378,76 373,88 369,97 366,104 365,107 364,111 362,114 360,118 357,123 356,126 354,129 354,131 353,132 353,133 352,134 351,136 350,137 349,139 348,141 348,144 348,147 348,150 348,151 348,153 349,153 350,153 353,154 357,154 362,154 366,154 369,154 371,153 372,152 373,151 373,150 374,149 374,147 374,146 375,145 375,144 377,143 380,136 386,123 394,105 405,81 413,62 418,50 421,43 421,42 422,41 422,39 423,38 424,37 425,36 426,34 426,31 427,28 428,26 428,24 430,22 431,21 432,21 434,21ZM611,21 613,22 614,22 615,23 615,24 615,26 616,27 616,28 617,29 620,29 627,29 637,30 650,30 660,29 666,28 670,27 672,25 673,23 676,22 679,22 682,22 685,23 686,25 685,28 683,32 681,35 680,38 679,39 678,40 673,40 665,40 654,41 638,41 626,41 616,40 610,40 606,39 603,38 601,37 601,36 601,34 602,33 602,31 603,30 604,29 605,28 606,27 606,25 606,24 606,23 606,22 607,21 608,21 609,21 610,21ZM718,20 720,20 721,21 722,21 723,21 724,22 724,23 725,24 725,26 725,29 725,31 725,32 725,33 726,33 728,34 733,34 739,34 748,34 755,33 759,33 762,33 763,32 764,32 764,31 764,30 764,28 765,27 765,25 766,24 768,23 769,22 772,21 775,21 778,21 779,25 776,34 772,48 764,67 757,83 750,98 744,111 738,122 734,131 731,138 730,144 730,147 730,150 730,151 730,153 731,153 733,154 735,154 739,154 744,154 748,154 751,154 753,153 754,153 754,152 755,151 755,149 755,148 756,147 756,146 757,145 759,144 760,143 760,142 761,140 761,138 763,132 767,123 772,110 780,93 787,79 792,67 796,58 798,51 800,45 802,41 804,39 805,37 806,36 807,34 808,31 808,28 809,26 810,24 810,22 811,22 812,21 814,21 815,21 817,21 818,22 819,24 819,26 819,28 820,30 820,31 820,32 821,33 824,33 832,33 843,33 858,33 869,33 877,31 881,29 883,27 885,24 888,23 891,22 896,21 897,26 894,35 889,48 880,66 873,80 868,90 864,96 863,98 861,100 860,103 858,106 856,110 852,115 847,122 841,129 833,138 824,146 816,153 808,160 801,165 793,170 787,174 782,177 777,180 771,183 764,185 755,189 746,192 736,195 728,197 719,199 712,200 704,201 697,202 690,203 683,204 676,204 669,204 662,204 655,204 649,204 644,204 641,204 640,203 637,203 634,203 629,203 624,204 621,203 619,202 620,200 623,198 627,195 630,192 633,189 636,185 639,181 643,177 646,172 649,167 653,160 658,150 664,138 670,123 676,110 681,98 686,88 690,80 693,72 696,65 699,59 701,54 702,50 704,46 706,42 708,39 709,37 710,34 711,32 711,31 711,29 712,27 713,26 714,23 716,22 717,21ZM307,21 308,21 309,21 310,22 310,23 309,26 308,29 305,34 302,41 300,46 298,50 297,54 296,56 296,58 295,59 294,60 293,61 284,62 268,63 244,63 212,63 187,64 171,65 163,67 162,69 162,71 161,74 161,76 161,80 161,82 162,84 162,86 163,86 167,87 174,87 185,86 199,86 213,86 228,85 243,85 258,86 268,89 274,95 274,104 269,116 265,126 261,134 257,141 254,145 252,149 250,152 248,155 247,157 246,159 244,162 241,166 238,170 234,174 230,177 226,181 221,184 216,187 211,190 206,192 200,195 193,197 185,199 176,200 165,202 150,203 129,204 103,204 73,204 50,203 35,202 27,200 27,199 28,196 29,192 31,188 34,183 36,179 37,176 38,173 39,171 39,169 40,167 42,165 43,163 45,161 48,161 52,160 56,161 60,161 63,160 65,160 67,159 72,159 82,159 96,158 114,158 128,159 138,159 145,159 148,160 151,160 152,161 153,163 153,164 154,165 156,166 158,167 161,167 164,166 165,165 166,164 166,162 167,160 168,159 169,158 171,158 172,157 174,156 175,155 176,153 177,151 178,149 178,146 178,143 178,142 179,141 179,140 180,141 182,142 183,142 186,142 189,142 191,141 193,139 194,137 194,133 193,130 193,128 192,126 191,125 189,124 187,123 185,123 181,123 179,124 177,125 176,128 176,131 169,134 156,135 136,136 110,136 89,136 74,136 65,136 61,135 59,133 59,128 61,121 65,112 69,103 73,94 77,86 81,78 85,71 89,65 92,61 95,57 98,53 101,51 104,49 106,47 108,46 109,45 111,44 112,44 114,44 115,43 117,41 118,39 120,38 122,37 125,36 129,36 132,35 134,35 135,34 136,33 137,32 138,30 141,29 143,27 146,26 150,25 154,25 158,25 161,25 164,24 165,24 167,23 168,23 169,22 170,22 170,23 170,24 171,26 171,28 171,30 171,31 171,32 172,33 180,33 196,33 219,33 250,33 273,32 290,30 299,28 302,25 304,23 306,22ZM660,63 663,63 666,64 668,64 668,65 668,66 668,67 667,68 666,70 665,73 662,77 659,84 655,93 649,105 645,114 643,121 641,125 641,127 640,130 638,134 635,140 632,146 628,152 624,158 619,164 614,170 609,175 605,179 601,183 597,185 593,188 588,190 583,192 577,195 571,197 564,199 558,200 551,201 544,202 536,203 529,203 520,203 516,202 514,200 516,197 521,193 526,189 529,185 532,181 533,178 535,174 538,170 540,166 544,162 546,158 548,155 549,153 550,150 552,145 556,136 562,124 569,109 574,97 578,88 581,81 582,78 583,75 585,72 586,70 588,68 593,67 602,65 614,65 630,64 643,63 653,63Z"};
 
 function logoSet() {
   const scene = new THREE.Scene();
@@ -2833,7 +2961,9 @@ export function createIntro(renderer) {
     // A darker night than the other base shots, so the searchlight carries the frame.
     base.frontLight.intensity = 0.35;
     base.hemi.intensity = 0.35;
-    base.moonLight.intensity = 1.6;
+    base.moonLight.intensity = 0.4;
+    base.moonShade.visible = true;
+    base.moonShade.intensity = 1.6;
     return { scene, black: span(t, A(298), A(310)) };
   }
 
@@ -2841,6 +2971,7 @@ export function createIntro(renderer) {
   function night(t) {
     base.moon.visible = true;
     base.outMoon.visible = false;
+    base.moonShade.visible = false;
     base.hemi.intensity = 0.9;
     base.moonLight.intensity = 1.3;
     cam.updateMatrixWorld();
@@ -2909,7 +3040,8 @@ export function createIntro(renderer) {
     h.heli.position.set(0, y, 0);
     h.heli.rotation.set(0, keyed(t, [[B(422), 0], [B(507), 0.5]]), 0);
     const speed = keyed(t, ROTOR);
-    setRotor(h.heli, spun(t, ROTOR), speed);
+    // Parked with the blades at about 40 degrees to the airframe, as in the video.
+    setRotor(h.heli, spun(t, ROTOR) + 0.7, speed);
     const fold = smooth(span(t, ...CLAMPS_OPEN));
     // The jaws grip tilted to the belly's curve and let go by tilting level.
     h.clamps.forEach((c) => { c.jaw.rotation.x = -0.3 * (1 - fold); });
@@ -3026,17 +3158,16 @@ export function createIntro(renderer) {
     m.userData.jet.material.uniforms.opacity.value = t >= B(546) ? 2.2 + 0.4 * Math.sin(t * 90) : 0;
     m.userData.jet.scale.set(1, t >= B(546) ? 0.6 + 0.6 * span(t, B(546), B(549)) : 1, 1);
     const p = (x, y, z) => V(x, y, z).applyMatrix4(h.matrixWorld);
-    // Close below the outer pair, so the missiles fill the frame as in the video. The video
-    // shows them against the roof, so the wing (and its tip light) is left out of this shot.
-    h.userData.wings.forEach((w) => { w.visible = false; });
+    // Below the wing and ahead of the outer pair, looking back along them, so their noses are
+    // nearest the lens and the wing they hang from runs across the top of the frame.
     // Neutral light here: the warm wall fills and reflections turned the cream missiles gold.
     hall.uplights[-1].fill.forEach((l) => { l.intensity = 1.5; });
     hall.uplights[1].fill.forEach((l) => { l.intensity = 1.5; });
     scene.environmentIntensity = 0.25;
     hall.ambient.intensity = 1.4;
-    cam.position.copy(p(1.75, -1.45, -0.95));
+    cam.position.copy(p(1.75, -1.25, 2.3));
     cam.up.copy(V(0, 0, 1).transformDirection(h.matrixWorld));
-    cam.lookAt(p(1.75, 0.2, 0.3));
+    cam.lookAt(p(1.75, 0.15, -0.3));
     cam.fov = 44;
     const mp = V().setFromMatrixPosition(m.matrixWorld);
     hall.motor.position.copy(mp);
@@ -3083,14 +3214,14 @@ export function createIntro(renderer) {
     base.outTower.userData.glow.material.color.setScalar(0.08);
     base.outMoon.visible = true;
     base.outMoon.intensity = 1.8;
+    base.moonShade.visible = false;
     const hg = base.hangar.userData;
     const blown = t >= B(597);
-    hg.door.visible = !blown;
-    hg.front.visible = !blown;
-    // The blast strips the skin off: the fire burns inside the bare ribs. The front of the frame
-    // goes too, leaving the gunship a clear way out.
-    hg.shell.visible = !blown;
-    hg.ribs.forEach((rib) => { rib.visible = !blown || rib.position.z < 0; });
+    // Only the door goes: the front wall stays, with a ragged opening where the door was.
+    hg.frontParts.forEach((o) => { o.visible = !blown; });
+    hg.frontBlown.visible = blown;
+    hg.shell.visible = true;
+    hg.ribs.forEach((rib) => { rib.visible = true; });
     const F = t - B(596);
     // White core with rays, swelling then collapsing into the fire.
     const flash = F < 0 ? 0 : F < 0.2 ? F / 0.2 : Math.max(0, 1 - (F - 0.7) / 0.6);
@@ -3132,13 +3263,23 @@ export function createIntro(renderer) {
       base.slab.position.set(O + 0.5 + 1.2 * T, Math.max(0.1, 0.8 + 2.6 * T - 2.2 * T * T), -18 + 12 * T);
       base.slab.rotation.set(1.3 * T, 0.4 + 0.6 * T, 2.1 * T);
     }
+    {
+      // The blast rolls the tanker over onto its left side, pivoting on the left wheels, and
+      // shoves it a little away from the fire.
+      const tr = base.outTruck, yaw = -1.95, w = 1.15;
+      const tip = smooth(span(t, B(599), B(607)));
+      const a = Math.PI / 2 * tip;
+      const lx = w - w * Math.cos(a), ly = w * Math.sin(a);
+      tr.rotation.set(0, yaw, -a);
+      tr.position.copy(tr.userData.home).add(V(lx * Math.cos(yaw), ly, -lx * Math.sin(yaw)))
+        .add(V(-0.37, 0, 0.93).multiplyScalar(1.4 * tip));
+    }
     base.debris.forEach((d) => {
       const T = t - B(598);
-      // Hidden in the glare at first; they show once the flash dies down.
-      d.visible = T > 0.35;
+      d.visible = T > 0.12;
       if (T <= 0) return;
       const u = d.userData;
-      d.position.set(u.p.x + u.v.x * T, Math.max(0.05, u.p.y + u.v.y * T - 11 * T * T), u.p.z + u.v.z * T);
+      d.position.set(u.p.x + u.v.x * T, Math.max(0.05, u.p.y + u.v.y * T - 5 * T * T), u.p.z + u.v.z * T);
       d.rotation.set(u.w.x * T, u.w.y * T, u.w.z * T);
     });
     // The gunship bursts out of the fire and away to the right.
@@ -3147,7 +3288,8 @@ export function createIntro(renderer) {
     H.visible = t >= B(626);
     // Straight out along the hangar's axis until the rotor is clear of the frame, then away to
     // the right.
-    const p = track(k, [[0, O, 4.0, -26], [0.3, O + 0.5, 4.8, -17], [0.6, O + 5.5, 6.6, -13], [1, O + 17, 10, -9]]);
+    // Out through the opening the door left, then away to the right.
+    const p = track(k, [[0, O, 3.4, -27], [0.3, O + 0.4, 4.2, -17], [0.6, O + 5.5, 6.4, -13], [1, O + 17, 10, -9]]);
     H.position.copy(p);
     // Nose down and banked as it bursts out, as in the video, turning only once it is clear.
     H.rotation.set(lerp(0.38, 0.18, k), lerp(0.25, 1.45, smooth(span(k, 0.2, 0.7))), lerp(-0.5, -0.3, k));
