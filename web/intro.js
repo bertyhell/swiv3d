@@ -3038,7 +3038,8 @@ export function createIntro(renderer) {
     });
     const y = heliLift(t);
     h.heli.position.set(0, y, 0);
-    h.heli.rotation.set(0, keyed(t, [[B(422), 0], [B(507), 0.5]]), 0);
+    // It hovers pointing straight down the hall, as in the video, without turning.
+    h.heli.rotation.set(0, 0, 0);
     const speed = keyed(t, ROTOR);
     // Parked with the blades at about 40 degrees to the airframe, as in the video.
     setRotor(h.heli, spun(t, ROTOR) + 0.7, speed);
