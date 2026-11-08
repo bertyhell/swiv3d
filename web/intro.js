@@ -17,10 +17,10 @@
 //   H  74-117  head-on again, wider
 //   I 118-207  the cockpit wakes up (cockpit.js, shared with the briefing)
 //   J 208-274  over the rotor head; the blades start to turn
-//   K 275-325  at the pad: amber beacons turn, the gunship lifts off its pedestal
-//   L 326-370  from below, rotor spinning against the wall
-//   M 371-421  the pedestal clamps fold away under the hovering belly
-//   N 422-506  orbiting the gunship as it hovers over the pad
+//   K 275-325  at the pad: amber beacons turn, the rotor runs up; the gunship is still clamped
+//   L 326-370  from below, rotor at full speed against the wall
+//   M 371-421  the pedestal clamps fold away and the gunship lifts off
+//   N 422-506  orbiting the gunship as it climbs to a hover over the pad
 //   O 507-554  under the wing: a missile drops off the rail and lights its motor
 //   P 555-569  the missile streaks down the hangar
 //   Q 570-595  outside: the hangar, the tower, a tanker
@@ -699,43 +699,71 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   const beacon = navLight(0xff3020, 0.05);
   beacon.position.set(0, 2.25, -5.9);
   g.add(beacon);
-  // Main rotor with ghost blades for motion blur and a faint disc at speed.
+  // Main rotor: mast, swashplate with pitch links, a four-armed hub, round blade cuffs on
+  // flapping hinges, and airfoil blades. Ghost blades give motion blur, and a faint disc at
+  // speed.
   const rotor = new THREE.Group();
-  rotor.position.set(0, 1.55, 0.05);
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.4, 10), dark);
-  mast.position.y = -0.2;
+  rotor.position.set(0, 1.75, 0.05);
+  const steel = metal(0x3a3d42, 0.45, 0.75);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.55, 14), steel);
+  mast.position.y = -0.27;
   rotor.add(mast);
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.18, 14), dark);
+  // Swashplate: a fixed lower ring and the rotating upper one, just above the cowl.
+  for (const [y, r0, h] of [[-0.33, 0.3, 0.05], [-0.28, 0.27, 0.05]]) {
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(r0, r0, h, 20), y < -0.3 ? dark : steel);
+    ring.position.y = y;
+    rotor.add(ring);
+  }
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.23, 0.2, 16), dark);
   rotor.add(hub);
-  const bladeGeo = plate([[-0.16, 0], [0.2, 0], [0.18, 5.3], [-0.12, 5.4]], 0.04, 0);
+  const bladeGeo = bladeGeometry();
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x17181b, roughness: 0.5, metalness: 0.35, transparent: true });
   const blades = [];
   const ghosts = [];
+  const flaps = [];
+  /** A flapping hinge at r = 0.42 on its arm; the blade hangs off it. */
+  const hinge = (parent) => { const f = new THREE.Group(); f.position.z = 0.42; parent.add(f); flaps.push(f); return f; };
   for (let k = 0; k < 4; k++) {
     const arm = new THREE.Group();
     arm.rotation.y = k * Math.PI / 2;
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.6), dark);
-    grip.position.z = 0.4;
-    arm.add(grip);
-    const blade = new THREE.Mesh(bladeGeo, new THREE.MeshStandardMaterial({ color: 0x141518, roughness: 0.6, metalness: 0.3, transparent: true }));
-    blade.rotation.x = Math.PI / 2;
-    blade.rotation.y = 0.05;
-    blade.position.set(0, 0, 0.55);
-    arm.add(blade);
+    // Hub arm: a tapered strap out to the hinge, with the hinge's bolt across it.
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.11, 0.34), dark);
+    strap.position.z = 0.27;
+    arm.add(strap);
+    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.26, 10), steel);
+    bolt.rotation.z = Math.PI / 2;
+    bolt.position.z = 0.42;
+    arm.add(bolt);
+    // Pitch link: from the swashplate rim up to the cuff's horn on the leading edge.
+    const link = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.36, 6), steel);
+    link.position.set(0.17, -0.14, 0.24);
+    arm.add(link);
+    const f = hinge(arm);
+    const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.064, 0.5, 14), dark);
+    cuff.rotation.x = Math.PI / 2;
+    cuff.position.z = 0.3;
+    f.add(cuff);
+    const horn = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 0.06), dark);
+    horn.position.set(0.12, 0.02, 0.1);
+    f.add(horn);
+    const blade = new THREE.Mesh(bladeGeo, bladeMat.clone());
+    blade.position.z = 0.4;
+    f.add(blade);
     blades.push(blade);
     for (const lag of [0.12, 0.24, 0.36]) {
-      const gh = new THREE.Mesh(bladeGeo, new THREE.MeshBasicMaterial({ color: 0x0c0c0e, transparent: true, opacity: 0, depthWrite: false }));
-      gh.rotation.x = Math.PI / 2;
-      gh.position.set(0, 0, 0.55);
       const ga = new THREE.Group();
       ga.rotation.y = -lag;
-      ga.add(gh);
       arm.add(ga);
+      const gh = new THREE.Mesh(bladeGeo, new THREE.MeshBasicMaterial({ color: 0x0c0c0e, transparent: true, opacity: 0, depthWrite: false }));
+      gh.position.z = 0.4;
+      hinge(ga).add(gh);
       ghosts.push({ m: gh, lag });
     }
     rotor.add(arm);
   }
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 8), dark);
-  dome.scale.y = 0.55; dome.position.y = 0.12;
+  // A low fairing cap over the hub.
+  const dome = new THREE.Mesh(new THREE.LatheGeometry([V(0.25, 0, 0), V(0.23, 0.07, 0), V(0.18, 0.14, 0), V(0.1, 0.19, 0), V(0, 0.21, 0)], 20), dark);
+  dome.position.y = 0.09;
   rotor.add(dome);
   const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 5.9, 48),
     new THREE.MeshBasicMaterial({ color: 0x6a6e74, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
@@ -756,7 +784,59 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   tailHub.rotation.z = Math.PI / 2;
   tail.add(tailHub);
   g.add(tail);
-  g.userData = { rotor, tail, disc, blades, ghosts, missiles, beacon, hull };
+  g.userData = { rotor, tail, disc, blades, ghosts, flaps, missiles, beacon, hull };
+  return g;
+}
+
+/**
+ * A main-rotor blade running along +z from its root (z = 0) to the tip at `len`: a symmetric
+ * NACA-style airfoil, leading edge toward +x (the way the rotor turns), round where it leaves
+ * the cuff, a few degrees of twist washing out toward the tip, and a swept, tapered tip.
+ */
+function bladeGeometry(len = 5.1) {
+  // [fraction of span, chord, thickness / chord, twist (rad), sweep of the quarter-chord (-x)]
+  const stations = [
+    [0, 0.13, 0.95, 0.14, 0], [0.03, 0.15, 0.8, 0.14, 0], [0.07, 0.3, 0.2, 0.13, 0],
+    [0.11, 0.42, 0.13, 0.12, 0], [0.5, 0.42, 0.12, 0.07, 0], [0.9, 0.42, 0.11, 0.01, 0],
+    [0.95, 0.38, 0.1, 0, 0.06], [0.985, 0.26, 0.09, 0, 0.17], [1, 0.14, 0.08, 0, 0.24],
+  ];
+  const N = 10; // points per surface
+  const xs = [];
+  for (let i = 0; i <= N; i++) xs.push((1 - Math.cos(i / N * Math.PI)) / 2); // LE-clustered
+  const yt = (x, t) => 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
+  const pos = [], idx = [];
+  // Ring: upper surface TE -> LE, then lower surface LE -> TE (LE shared).
+  const ring = [];
+  for (let i = N; i >= 0; i--) ring.push([xs[i], 1]);
+  for (let i = 1; i <= N; i++) ring.push([xs[i], -1]);
+  const M = ring.length;
+  for (const [f, c, t, tw, sw] of stations) {
+    for (const [x, s] of ring) {
+      const X = (0.25 - x) * c, Y = s * yt(x, t) * c;
+      pos.push(X * Math.cos(tw) - Y * Math.sin(tw) - sw, X * Math.sin(tw) + Y * Math.cos(tw), f * len);
+    }
+  }
+  for (let j = 0; j < stations.length - 1; j++) {
+    for (let i = 0; i < M; i++) {
+      const a = j * M + i, b = j * M + (i + 1) % M;
+      idx.push(a, a + M, b, b, a + M, b + M);
+    }
+  }
+  // Caps at root and tip.
+  for (const [j, flip] of [[0, false], [stations.length - 1, true]]) {
+    const c = pos.length / 3;
+    let cx = 0, cy = 0;
+    for (let i = 0; i < M; i++) { cx += pos[(j * M + i) * 3]; cy += pos[(j * M + i) * 3 + 1]; }
+    pos.push(cx / M, cy / M, stations[j][0] * len);
+    for (let i = 0; i < M; i++) {
+      const a = j * M + i, b = j * M + (i + 1) % M;
+      if (flip) idx.push(c, b, a); else idx.push(c, a, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
   return g;
 }
 
@@ -768,6 +848,9 @@ function setRotor(heli, angle, speed = 0) {
   const u = heli.userData;
   u.rotor.rotation.y = angle;
   u.tail.rotation.x = angle * 2.7;
+  // The blades droop at rest and cone upward once they carry the weight.
+  const lift = smooth(speed / 30);
+  u.flaps.forEach((f) => { f.rotation.x = lerp(0.035, -0.035, lift); });
   const blur = clamp01((speed - 5) / 25);
   u.disc.material.opacity = blur * 0.1;
   u.blades.forEach((b) => { b.material.opacity = 1 - blur * 0.55; });
@@ -997,8 +1080,19 @@ function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x
   return g;
 }
 
-/** A flat-roofed concrete bunker with a row of three lit windows on the roof edge. */
-function makeBunker() {
+/** A soft round pool of light, for lamps' footprints on the ground (white, alpha falls off). */
+const pondTex = canvasTexture(128, 128, (g, w, h) => {
+  const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.45, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h);
+});
+
+/**
+ * A flat-roofed concrete bunker with a row of three lit windows on the roof edge.
+ * `cornerLamp`: a wall lamp on the left side by the front corner, pooling light on the ground.
+ */
+function makeBunker({ cornerLamp = false } = {}) {
   const g = new THREE.Group();
   const conc = new THREE.MeshStandardMaterial({ color: 0x45484a, map: panelTexture('#6a6d70', { cols: 4, rows: 2, line: 'rgba(0,0,0,0.3)' }), roughness: 0.95 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(9, 3.2, 7), conc);
@@ -1018,6 +1112,28 @@ function makeBunker() {
   const lamp = new THREE.PointLight(0xfff0c8, 8, 9, 1.5);
   lamp.position.set(2, 2.7, 4.2);
   g.add(lamp);
+  if (cornerLamp) {
+    const fix = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.5), metal(0x2a2c30, 0.6, 0.5));
+    fix.position.set(-4.65, 2.75, 2.6);
+    g.add(fix);
+    const bulb = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.24), new THREE.MeshBasicMaterial({ color: 0xfff6dc }));
+    bulb.rotation.x = Math.PI / 2;
+    bulb.position.set(-4.7, 2.63, 2.6);
+    g.add(bulb);
+    const spot = new THREE.SpotLight(0xfff0d0, 60, 14, 0.9, 0.7, 1.4);
+    spot.position.set(-4.75, 2.6, 2.6);
+    spot.target.position.set(-6.2, 0, 2.6);
+    g.add(spot, spot.target);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), additive(pondTex, 0x8a8678, 1));
+    pool.rotation.x = -Math.PI / 2;
+    pool.scale.set(5.5, 6.5, 1);
+    pool.position.set(-6.4, 0.04, 2.6);
+    g.add(pool);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: pondTex, color: 0x9a968a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    halo.position.set(-4.75, 2.6, 2.6);
+    halo.scale.setScalar(1.4);
+    g.add(halo);
+  }
   return g;
 }
 
@@ -1026,20 +1142,19 @@ function makeTower() {
   const g = new THREE.Group();
   const steel = metal(0x4a4d52, 0.6, 0.7);
   const H = 13;
-  const legs = [[-1.6, -1.6], [1.6, -1.6], [1.6, 1.6], [-1.6, 1.6]];
-  for (const [x, z] of legs) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, H, 6), steel);
-    leg.position.set(x * 0.85, H / 2, z * 0.85);
-    leg.rotation.z = -x * 0.022; leg.rotation.x = z * 0.022;
+  // Straight, plumb legs: the lattice is as wide at the foot as under the deck.
+  const half = 1.45;
+  for (const [x, z] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, H, 6), steel);
+    leg.position.set(x * half, H / 2, z * half);
     g.add(leg);
     const foot = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.3, 0.6), new THREE.MeshStandardMaterial({ color: 0x4a4a48, roughness: 0.95 }));
-    foot.position.set(x * 0.9, 0.15, z * 0.9);
+    foot.position.set(x * half, 0.15, z * half);
     g.add(foot);
   }
   // X-bracing on every face, every bay, with horizontal girts.
   const bay = 2.4;
   for (let y = 0.6; y + bay <= H + 0.1; y += bay) {
-    const half = 1.38 - y * 0.012;
     for (let k = 0; k < 4; k++) {
       const face = new THREE.Group();
       face.rotation.y = k * Math.PI / 2;
@@ -1060,12 +1175,12 @@ function makeTower() {
   // Ladder up one leg.
   for (const s of [-1, 1]) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(0.04, H, 0.04), steel);
-    rail.position.set(s * 0.22, H / 2, 1.55);
+    rail.position.set(s * 0.22, H / 2, half + 0.18);
     g.add(rail);
   }
   for (let y = 0.4; y < H; y += 0.35) {
     const rung = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.025, 0.025), steel);
-    rung.position.set(0, y, 1.55);
+    rung.position.set(0, y, half + 0.18);
     g.add(rung);
   }
   // Deck with railing.
@@ -1108,12 +1223,13 @@ function makeTower() {
   const roof = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.25, 4.0), metal(0x26282b));
   roof.position.y = H + 2.62;
   g.add(roof);
-  // Searchlight on a yoke on the roof.
+  // Searchlight on a yoke at the roof's front left corner.
   const yoke = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 0.6, 8), metal(0x222222));
-  yoke.position.set(0, H + 3.0, 0.6);
+  yoke.position.set(-1.55, H + 3.0, 1.55);
   g.add(yoke);
   const head = new THREE.Group();
-  head.position.set(0, H + 3.45, 0.6);
+  head.rotation.order = 'YXZ'; // pan on the yoke, then tilt
+  head.position.set(-1.55, H + 3.45, 1.55);
   const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 0.7, 16), metal(0x222222, 0.5, 0.6));
   lamp.rotation.x = Math.PI / 2;
   head.add(lamp);
@@ -1135,8 +1251,13 @@ function makeTower() {
   target.position.set(0, 0, 30);
   head.add(target);
   spot.target = target;
+  // Glare when the lamp swings round to face the lens.
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: raysTex, color: 0xdfe6ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false }));
+  flare.position.z = 0.45;
+  flare.scale.setScalar(5);
+  head.add(flare);
   g.add(head);
-  g.userData = { head, beam, spot, glow };
+  g.userData = { head, beam, spot, glow, flare };
   return g;
 }
 
@@ -1548,21 +1669,58 @@ function baseSet() {
   const H = SET.high;
   at(makeHangar(14, 4.0, { lamp: false, skin: 0xd0d0d4 }), H - 9, 0, 1, 1.0);
   at(makeHangar(14, 4.0, { lamp: false, skin: 0xd0d0d4 }), H - 22, 0, 4, 1.0);
-  const bunker = at(makeBunker(), H + 5, 0, 3.5, 0.75);
+  const bunker = at(makeBunker({ cornerLamp: true }), H + 5, 0, 3.5, 0.75);
   at(makeTower(), H - 1, 0, -7);
   const highWall = at(makeWall(120), H - 4, 0, -16, 0.22);
 
-  // Moon shot: two huts end-on, the tower behind, a lit block with a door lamp, the wall.
+  // Moon shot, as the video frames it: two huts with their ends turned toward the camera's
+  // right, so their left flanks run back into the dark; the tower just behind the second
+  // hut; a low block on the right with a lamp over its door; the wall; and a tanker parked
+  // close on the right, which the camera's drift brings into frame.
   const M = SET.moon;
-  for (const [x, z, rr] of [[-8, -33, 6.4], [5, -41, 5.4]]) {
-    const hut = at(makeHangar(22, rr, { lamp: false, skin: 0x3a3c42 }), M + x, 0, z, 0.1);
-    hut.scale.y = 1.15;
+  const HUT_YAW = 0.5;
+  for (const [x, z, rr, len, sy] of [[-4.6, -20, 6.2, 22, 1.18], [5.8, -27, 6.0, 20, 1.22]]) {
+    // (x, z) is the middle of the hut's front end; the body runs back from it.
+    const cx = x - Math.sin(HUT_YAW) * len / 2, cz = z - Math.cos(HUT_YAW) * len / 2;
+    const hut = at(makeHangar(len, rr, { lamp: false, skin: 0x9a9ea8 }), M + cx, 0, cz, HUT_YAW);
+    hut.scale.y = sy;
+    // The moon is behind the huts, so each throws a long shadow toward the camera.
+    const shade = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: pondTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
+    shade.rotation.set(-Math.PI / 2, 0, 0.35);
+    shade.scale.set(rr * 2.6, rr * 2.2, 1);
+    shade.position.set(M + x + rr * 0.5, 0.03, z + rr * 0.9);
+    scene.add(shade);
   }
-  const moonTower = at(makeTower(), M + 12, 0, -40);
-  const block = at(makeBunker(), M + 22, 0, -44, 0);
-  block.scale.set(2.2, 0.85, 1);
-  at(makeWall(160), M, 0, -55);
-  const moonTanker = at(makeTruck('tanker'), M + 14, 0, -6, -Math.PI / 2 - 0.4);
+  const moonTower = at(makeTower(), M + 11.5, 0, -35);
+  // A big shed far back by the wall, its lamp high on the front near the right-hand end.
+  const block = at(makeBunker(), M + 31, 0, -64, 0);
+  block.scale.set(2, 2.6, 1.2);
+  // The block's door lamp: a hooded fitting, the fan of light it throws down the wall, and its
+  // pool on the ground.
+  {
+    const lx = M + 37, ly = 6, lz = -64 + 4.21;
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.6), metal(0x2a2c30, 0.6, 0.5));
+    hood.position.set(lx, ly + 0.15, lz + 0.3);
+    const bulb = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.45), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    bulb.rotation.x = Math.PI / 2;
+    bulb.position.set(lx, ly - 0.01, lz + 0.3);
+    const fan = new THREE.Mesh(new THREE.PlaneGeometry(7, ly), additive(washTex, 0xd8dce8, 0.6));
+    fan.rotation.z = Math.PI;
+    fan.position.set(lx, ly / 2, lz + 0.05);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), additive(pondTex, 0x7a7e88, 1));
+    pool.rotation.x = -Math.PI / 2;
+    pool.scale.set(9, 7, 1);
+    pool.position.set(lx, 0.04, lz + 3);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: pondTex, color: 0xb8bcc8, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    halo.position.set(lx, ly - 0.1, lz + 0.4);
+    halo.scale.setScalar(2.4);
+    const spot = new THREE.SpotLight(0xe8ecff, 400, 18, 0.9, 0.6, 1.4);
+    spot.position.set(lx, ly - 0.1, lz + 0.4);
+    spot.target.position.set(lx, 0, lz + 3);
+    scene.add(hood, bulb, fan, pool, halo, spot, spot.target);
+  }
+  at(makeWall(160), M, 0, -72);
+  const moonTanker = at(makeTruck('tanker'), M + 11, 0, -3.5, -0.45);
   // The searchlight's beam is a long additive frustum from the tower's lamp head: it starts
   // as wide as the lens (radius 0.4) rather than at a point, and spreads out from there.
   const tw = moonTower.userData;
@@ -1992,7 +2150,11 @@ const TUBE_OFF = new Set([34, 37, 55, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75
 // Hangar clock: lights, lift, rotor.
 const LEFT_ON = B(46), RIGHT_ON = B(64), BEACONS_ON = B(283);
 const ROTOR = [[B(214), 0], [B(274), 3.2], [B(300), 14], [B(345), 30]];
-const heliLift = (t) => 2.95 + keyed(t, [[B(277), 0], [B(300), 0.6], [B(330), 1.0], [B(420), 1.5], [B(470), 3.3], [B(520), 3.6]]) + 0.06 * Math.sin(t * 2.3) * span(t, B(300), B(330));
+// The gunship stays clamped to its pedestal while the rotor runs up to speed; the clamps
+// fold away (CLAMPS_OPEN) and only then does it lift off and climb to its hover.
+const CLAMPS_OPEN = [B(380), B(392)];
+const heliLift = (t) => 2.95 + keyed(t, [[B(393), 0], [B(400), 0.12], [B(410), 0.55], [B(422), 1.1], [B(450), 2.0], [B(480), 3.2], [B(520), 3.6]])
+  + 0.06 * Math.sin(t * 2.3) * span(t, B(400), B(420));
 // Dusk clock, seconds from the first frame of S.
 const S0 = B(661);
 const DUSK_PATH = [
@@ -2108,24 +2270,34 @@ export function createIntro(renderer) {
   function shotMoon(t) {
     const T = t - A(207);
     const X = SET.moon;
-    path(cam, T, [[0, [X + 1, 1.8, 6], [X + 2.4, 6.5, -40], 50], [7.6, [X + 1.6, 1.8, 6], [X + 4, 6.5, -40], 50]], false);
+    // The camera drifts right, bringing the parked tanker in at the edge of frame.
+    // Fitted to the video's first and last frames: a 2.8 m crab right with a 5 degree pan.
+    path(cam, T, [[0, [X, 3, 6], [X, 7.3, -40], 50], [7.6, [X + 2.8, 3, 6], [X + 6.8, 7.3, -40], 50]], false);
     const tw = base.moonTower.userData;
     const lit = t >= A(244) ? 1 : 0;
     tw.beam.material.opacity = lit * 0.3;
     tw.glow.material.color.setScalar(lit ? 1 : 0.12);
     tw.spot.intensity = lit * 4000;
-    const yaw = keyed(t, [[A(244), -1.3], [A(258), -1.05], [A(263), -0.25], [A(266), 0.6], [A(272), 1.25], [A(287), 1.45], [A(292), 2.4], [A(296), 3.6], [A(310), 4.0]]);
-    tw.head.rotation.set(0.2, yaw, 0);
-    // The tanker stands parked for the whole shot.
-    base.moonTanker.position.set(X + 10, 0, -8);
-    base.moonTanker.rotation.y = -0.55;
+    // The searchlight snaps on aimed down to the left, sweeps across to the right, then swings
+    // back toward the camera, glaring straight into the lens as it passes over it.
+    const yaw = keyed(t, [[A(244), -1.3], [A(258), -1.05], [A(263), -0.25], [A(266), 0.6], [A(272), 1.25], [A(282), 1.4],
+      [A(287), 0.95], [A(292), 0.3], [A(297), -0.15], [A(303), -0.45], [A(310), -0.7]]);
+    const pitch = keyed(t, [[A(244), 0.32], [A(263), 0.3], [A(272), 0.2], [A(287), 0.24], [A(294), 0.31], [A(310), 0.32]]);
+    tw.head.rotation.set(pitch, yaw, 0);
+    tw.head.updateMatrixWorld();
+    const fwd = V(0, 0, 1).transformDirection(tw.head.matrixWorld);
+    const toCam = cam.position.clone().sub(V().setFromMatrixPosition(tw.head.matrixWorld)).normalize();
+    const facing = fwd.dot(toCam);
+    tw.flare.material.opacity = lit * smooth((facing - 0.95) / 0.045);
+    // Seen end-on the beam is just the glare, not a solid wedge across the frame.
+    tw.beam.material.opacity = lit * 0.3 * (1 - 0.85 * smooth((facing - 0.9) / 0.08));
     base.pool.intensity = 0;
     base.poolSpot.material.opacity = 0;
     const scene = night(t);
     // A darker night than the other base shots, so the searchlight carries the frame.
     base.frontLight.intensity = 0.35;
     base.hemi.intensity = 0.35;
-    base.moonLight.intensity = 0.6;
+    base.moonLight.intensity = 1.6;
     return { scene, black: span(t, A(298), A(310)) };
   }
 
@@ -2181,7 +2353,7 @@ export function createIntro(renderer) {
     h.heli.rotation.set(0, keyed(t, [[B(422), 0], [B(507), 0.5]]), 0);
     const speed = keyed(t, ROTOR);
     setRotor(h.heli, spun(t, ROTOR), speed);
-    const fold = smooth(span(t, B(414), B(424)));
+    const fold = smooth(span(t, ...CLAMPS_OPEN));
     h.clamps.forEach((c) => { c.rotation.x = fold * 1.25; });
     h.heli.userData.missiles.forEach((m) => { m.position.copy(m.userData.home); m.rotation.set(0, 0, 0); m.visible = true; m.userData.flame.material.opacity = 0; });
     h.shot.visible = false;
@@ -2247,9 +2419,10 @@ export function createIntro(renderer) {
 
   function shotHover(t) {
     const scene = hallState(t);
+    // Kept inside the hall (its walls stand at x = ±9.5) so the lens never passes through them.
     path(cam, t - B(422), [
-      [0, [8.5, 1.6, 6.5], [0, 5.0, 0], 52], [2.6, [7.0, 2.6, 2.5], [-0.5, 6.2, -0.5], 52],
-      [4.0, [8.0, 3.8, -4], [0, 6.6, 0], 52], [6.0, [12.5, 3.6, -15], [0, 6.2, 0], 52],
+      [0, [8.0, 1.6, 6.5], [0, 4.6, 0], 52], [2.6, [6.8, 2.6, 2.5], [-0.5, 5.8, -0.5], 52],
+      [4.0, [7.6, 3.8, -4], [0, 6.4, 0], 52], [6.0, [7.8, 3.6, -14], [0, 6.2, 0], 52],
     ], true);
     return { scene };
   }
