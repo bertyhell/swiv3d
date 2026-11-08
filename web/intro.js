@@ -19,7 +19,7 @@
 //   J 208-274  over the rotor head; the blades start to turn
 //   K 275-325  at the pad: amber beacons turn, the rotor runs up; the gunship is still clamped
 //   L 326-370  from below, rotor at full speed against the wall
-//   M 371-421  the pedestal clamps fold away and the gunship lifts off
+//   M 371-421  the clamp jaws let go and the gunship lifts off
 //   N 422-506  orbiting the gunship as it climbs to a hover over the pad
 //   O 507-554  under the wing: a missile drops off the rail and lights its motor
 //   P 555-569  the missile streaks down the hangar
@@ -97,6 +97,12 @@ export const metal = (c, rough = 0.55, met = 0.6) => new THREE.MeshStandardMater
  * { z, w, h, y = 0, n = 2.6, top = 1, bot = 1 } (half width, half height, centre height,
  * squareness, and top/bottom height scales). UVs run round (u) and along (v) the hull.
  */
+/** Pull a section point in onto the line |x|/w + |y|/h = 2 - ch, flattening the corners. */
+function chamfer(x, y, w, h, ch) {
+  const t = Math.abs(x) / w + Math.abs(y) / h, lim = 2 - ch;
+  return t > lim ? [x * lim / t, y * lim / t] : [x, y];
+}
+
 function loft(sections, segs = 28) {
   const pos = [], uv = [], idx = [];
   const ring = segs + 1;
@@ -105,8 +111,10 @@ function loft(sections, segs = 28) {
     for (let i = 0; i <= segs; i++) {
       const a = i / segs * Math.PI * 2;
       const c = Math.cos(a), sn = Math.sin(a);
-      const x = Math.sign(c) * Math.abs(c) ** e * s.w;
-      const y = Math.sign(sn) * Math.abs(sn) ** e * s.h * (sn > 0 ? (s.top ?? 1) : (s.bot ?? 1));
+      let x = Math.sign(c) * Math.abs(c) ** e * s.w;
+      let y = Math.sign(sn) * Math.abs(sn) ** e * s.h * (sn > 0 ? (s.top ?? 1) : (s.bot ?? 1));
+      // `ch`: cut the corners off flat (a chamfer), as on the gunship's nose.
+      if (s.ch) [x, y] = chamfer(x, y, s.w, s.h * (sn > 0 ? (s.top ?? 1) : (s.bot ?? 1)), s.ch);
       pos.push(x, (s.y ?? 0) + y, s.z);
       uv.push(i / segs, j / (sections.length - 1));
     }
@@ -385,7 +393,12 @@ function drawSignInk(g, w, h, ink, field) {
   g.fillStyle = ink; g.strokeStyle = ink;
   g.font = '900 136px "Arial Black", Impact, sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.save(); g.scale(0.66, 1.08); g.fillText('KEEP OUT', w / 2 / 0.66, h * 0.5 / 1.08); g.restore();
+  // Heavy lettering, as on the video's sign: filled and then stroked to thicken the strokes.
+  g.save(); g.scale(0.62, 0.96);
+  g.lineJoin = 'round'; g.lineWidth = 10;
+  g.strokeText('KEEP OUT', w / 2 / 0.62, h * 0.5 / 0.96);
+  g.fillText('KEEP OUT', w / 2 / 0.62, h * 0.5 / 0.96);
+  g.restore();
   const icon = (kind) => {
     g.save(); g.lineWidth = 7;
     if (kind === 'man' || kind === 'mask') { g.beginPath(); g.arc(0, 0, 54, 0, Math.PI * 2); g.fill(); }
@@ -401,7 +414,7 @@ function drawSignInk(g, w, h, ink, field) {
     g.restore();
   };
   for (const [x, y, k] of [[100, 96, 'man'], [256, 96, 'flame'], [412, 96, 'rad'], [100, 380, 'bio'], [256, 380, 'blast'], [412, 380, 'mask']]) {
-    g.save(); g.translate(x, y); g.scale(1.22, 1.22); icon(k); g.restore();
+    g.save(); g.translate(x, y); g.scale(0.9, 0.9); icon(k); g.restore();
   }
 }
 
@@ -562,7 +575,55 @@ const beamTex = canvasTexture(8, 128, (g, w, h) => {
 });
 
 const concreteTex = noiseTexture(128, 128, [80, 80, 78], 46, [14, 14]);
+/** Grimy cast metal, as on the pad's pedestal and clamps: soft dark blotches over fine grain. */
+const mottleTex = canvasTexture(256, 256, (g, w, h) => {
+  const r = seeded(4242);
+  g.fillStyle = '#b8b0a0'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 260; i++) {
+    const x = r() * w, y = r() * h, s = 4 + r() * 26;
+    const grd = g.createRadialGradient(x, y, 0, x, y, s);
+    const k = r() < 0.7 ? '40,34,24' : '255,250,235';
+    grd.addColorStop(0, `rgba(${k},${0.05 + r() * 0.16})`); grd.addColorStop(1, `rgba(${k},0)`);
+    g.fillStyle = grd; g.fillRect(x - s, y - s, 2 * s, 2 * s);
+  }
+  const img = g.getImageData(0, 0, w, h);
+  for (let i = 0; i < w * h; i++) { const n = (r() - 0.5) * 34; for (let c = 0; c < 3; c++) img.data[i * 4 + c] += n; }
+  g.putImageData(img, 0, 0);
+});
+/** The hangar floor: dark granite with bright flecks that glint under the ridge lights. */
+const speckleTex = canvasTexture(256, 256, (g, w, h) => {
+  const r = seeded(777);
+  const img = g.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const fleck = r();
+    const v = fleck > 0.985 ? 190 + r() * 65 : fleck > 0.93 ? 95 + r() * 40 : 38 + r() * 34;
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v * 0.97; img.data[i * 4 + 2] = v * 0.9; img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+});
 const groundTex = noiseTexture(128, 128, [70, 72, 70], 40, [40, 40]);
+/** The base's sandy ground: soft drifts and ripples of lighter and darker sand over grain. */
+const sandTex = canvasTexture(256, 256, (g, w, h) => {
+  const r = seeded(31337);
+  g.fillStyle = '#a89c86'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 70; i++) {
+    const x = r() * w, y = r() * h, s = 18 + r() * 60;
+    const grd = g.createRadialGradient(x, y, 0, x, y, s);
+    const k = r() < 0.5 ? '60,52,40' : '230,220,200';
+    grd.addColorStop(0, `rgba(${k},${0.1 + r() * 0.15})`); grd.addColorStop(1, `rgba(${k},0)`);
+    for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) { g.save(); g.translate(dx, dy); g.fillStyle = grd; g.fillRect(x - s, y - s, 2 * s, 2 * s); g.restore(); }
+  }
+  // Wind ripples.
+  g.strokeStyle = 'rgba(40,34,26,0.12)';
+  for (let y = 0; y < h; y += 7) {
+    g.lineWidth = 1 + r() * 2; g.beginPath();
+    for (let x = 0; x <= w; x += 8) g.lineTo(x, y + Math.sin(x / w * Math.PI * 4 + y) * 3);
+    g.stroke();
+  }
+  const img = g.getImageData(0, 0, w, h);
+  for (let i = 0; i < w * h; i++) { const n = (r() - 0.5) * 30; for (let c = 0; c < 3; c++) img.data[i * 4 + c] += n; }
+  g.putImageData(img, 0, 0);
+});
 
 /** Corrugated sheet, ribs running along v (vertical on a wall). */
 const ribTex = canvasTexture(64, 16, (g, w, h) => {
@@ -590,13 +651,15 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   const black = metal(0x0c0d0f, 0.7, 0.3);
   // A boxy airframe: near-square sections (high superellipse exponent) whose top and bottom
   // lines run straight between stations, so the windscreen and sides come out as flat panes.
-  const box = (z, w, bot, top, n = 4.6) => ({ z, w, y: (top + bot) / 2, h: (top - bot) / 2, n });
+  // The cabin's corners are chamfered: flat facets either side of the windscreen and chin, as
+  // the video's nose shows head-on.
+  const box = (z, w, bot, top, n = 4.6, ch = 0) => ({ z, w, y: (top + bot) / 2, h: (top - bot) / 2, n, ch });
   const fuselage = [
-    box(3.3, 0.5, -0.78, -0.2, 4),
-    box(3.0, 0.8, -0.9, -0.15),
-    box(1.9, 1.0, -0.98, 0.95),
-    box(0.3, 1.05, -0.98, 1.02),
-    box(-1.0, 0.95, -0.8, 1.02),
+    box(3.3, 0.5, -0.78, -0.2, 4, 0.6),
+    box(3.0, 0.8, -0.9, -0.15, 4.6, 0.75),
+    box(1.9, 1.0, -0.98, 0.95, 4.6, 0.62),
+    box(0.3, 1.05, -0.98, 1.02, 4.6, 0.35),
+    box(-1.0, 0.95, -0.8, 1.02, 4.6, 0.2),
     box(-2.0, 0.5, -0.1, 0.9, 4),
     box(-5.4, 0.19, 0.48, 0.86, 3.4),
     box(-6.05, 0.13, 0.6, 0.94, 3.4),
@@ -606,9 +669,13 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   // proud of the skin.
   const gm = glassMat();
   if (glassOpts) Object.assign(gm, glassOpts);
-  const canopy = [fuselage[1], fuselage[2], box(1.0, 1.02, -0.98, 0.98)];
-  const glass = new THREE.Mesh(loft(canopy.map((c) => ({ ...c, w: c.w * 1.02, h: c.h * 1.02, bot: 0.02 })), 40), gm);
+  const canopy = [fuselage[1], fuselage[2], box(1.0, 1.02, -0.98, 0.98, 4.6, 0.45)];
+  // Two panes, so the hull's chamfered corners show as flat panels between them: the
+  // windscreen is a touch narrower and taller than the hull (only its front face stands
+  // proud), the side windows a touch wider and lower (only the sides do).
+  const glass = new THREE.Mesh(loft(canopy.map((c) => ({ ...c, w: c.w * 0.95, h: c.h * 1.025, bot: 0.02 })), 40), gm);
   g.add(glass);
+  g.add(new THREE.Mesh(loft(canopy.map((c) => ({ ...c, w: c.w * 1.02, h: c.h * 0.95, bot: 0.02 })), 40), gm));
   // Frame: posts between the side windows, and a pillar down each side of the sloped
   // windscreen (like a car's A-pillars), running along the glass's rounded corner from the
   // nose (z = 3.0) up to the roof (z = 1.9).
@@ -622,7 +689,9 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
     // A point on a glass section's corner, at angle a round the superellipse, just proud of it.
     const corner = (c, a, side) => {
       const e = 2 / c.n, w = c.w * 1.02, h = c.h * 1.02;
-      return V(side * Math.cos(a) ** e * w * 1.015, c.y + Math.sin(a) ** e * h * 1.015, c.z);
+      let [x, y] = [Math.cos(a) ** e * w, Math.sin(a) ** e * h];
+      if (c.ch) [x, y] = chamfer(x, y, w, h, c.ch);
+      return V(side * x * 1.015, c.y + y * 1.015, c.z);
     };
     for (const side of [-1, 1]) {
       const p0 = corner(canopy[0], Math.PI / 4, side), p1 = corner(canopy[1], Math.PI / 4, side);
@@ -656,17 +725,21 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   }
   // Stub wings with two missiles each.
   const missiles = [];
+  const wings = [];
   for (const s of [-1, 1]) {
-    const wing = new THREE.Mesh(plate([[0, 0.55], [1.4, 0.55], [1.4, -0.45], [0, -0.45]].map(([x, y]) => [x * s, y]), 0.08, 0), hull);
+    // Thick stub wings with rounded edges and a little droop, as in the video.
+    const wing = new THREE.Mesh(plate([[0, 0.6], [1.4, 0.5], [1.4, -0.4], [0, -0.5]].map(([x, y]) => [x * s, y]), 0.16, 0.05), hull);
     wing.rotation.x = Math.PI / 2;
+    wing.position.y = 0.1;
     const holder = new THREE.Group();
     holder.position.set(s * 0.95, 0.4, -0.1);
-    holder.rotation.z = s * -0.04;
+    holder.rotation.z = s * -0.09;
     holder.add(wing);
     g.add(holder);
     const tip = navLight(s < 0 ? 0xff2a1a : 0x22ff55, 0.05);
     tip.position.set(s * 2.37, 0.3, -0.1);
     g.add(tip);
+    wings.push(wing, tip);
     for (const [k, x] of [[0, 1.45], [1, 2.05]]) {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 1.1), dark);
       rail.position.set(s * x, 0.26, 0.0);
@@ -717,7 +790,7 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.23, 0.2, 16), dark);
   rotor.add(hub);
   const bladeGeo = bladeGeometry();
-  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x17181b, roughness: 0.5, metalness: 0.35, transparent: true });
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0x17181b, roughness: 0.75, metalness: 0.2, transparent: true });
   const blades = [];
   const ghosts = [];
   const flaps = [];
@@ -762,7 +835,8 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
     rotor.add(arm);
   }
   // A low fairing cap over the hub.
-  const dome = new THREE.Mesh(new THREE.LatheGeometry([V(0.25, 0, 0), V(0.23, 0.07, 0), V(0.18, 0.14, 0), V(0.1, 0.19, 0), V(0, 0.21, 0)], 20), dark);
+  // Flat, like the stacked plates of the video's rotor head.
+  const dome = new THREE.Mesh(new THREE.LatheGeometry([V(0.25, 0, 0), V(0.24, 0.04, 0), V(0.19, 0.07, 0), V(0.1, 0.09, 0), V(0, 0.095, 0)], 20), dark);
   dome.position.y = 0.09;
   rotor.add(dome);
   const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 5.9, 48),
@@ -784,7 +858,7 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   tailHub.rotation.z = Math.PI / 2;
   tail.add(tailHub);
   g.add(tail);
-  g.userData = { rotor, tail, disc, blades, ghosts, flaps, missiles, beacon, hull };
+  g.userData = { rotor, tail, disc, blades, ghosts, flaps, missiles, wings, beacon, hull };
   return g;
 }
 
@@ -797,8 +871,8 @@ function bladeGeometry(len = 5.1) {
   // [fraction of span, chord, thickness / chord, twist (rad), sweep of the quarter-chord (-x)]
   const stations = [
     [0, 0.13, 0.95, 0.14, 0], [0.03, 0.15, 0.8, 0.14, 0], [0.07, 0.3, 0.2, 0.13, 0],
-    [0.11, 0.42, 0.13, 0.12, 0], [0.5, 0.42, 0.12, 0.07, 0], [0.9, 0.42, 0.11, 0.01, 0],
-    [0.95, 0.38, 0.1, 0, 0.06], [0.985, 0.26, 0.09, 0, 0.17], [1, 0.14, 0.08, 0, 0.24],
+    [0.11, 0.32, 0.13, 0.12, 0], [0.5, 0.32, 0.12, 0.07, 0], [0.9, 0.32, 0.11, 0.01, 0],
+    [0.95, 0.29, 0.1, 0, 0.05], [0.985, 0.2, 0.09, 0, 0.13], [1, 0.11, 0.08, 0, 0.18],
   ];
   const N = 10; // points per surface
   const xs = [];
@@ -858,34 +932,101 @@ function setRotor(heli, angle, speed = 0) {
 }
 
 /** A missile: cream body, dark seeker nose and band, dark tail section with cruciform fins. +z forward. */
+/**
+ * The missile's cream skin: off-white paint with fine grain, faint grime, and rows of small
+ * dark stencil marks and scribbles, as on the video's missiles. u runs round the body, v along.
+ */
+const missileSkinTex = canvasTexture(256, 512, (g, w, h) => {
+  const r = seeded(9091);
+  g.fillStyle = '#e8e2d2'; g.fillRect(0, 0, w, h);
+  // Soft grime: darker blotches and a few long streaks down the body.
+  for (let i = 0; i < 60; i++) {
+    const x = r() * w, y = r() * h, s = 10 + r() * 40;
+    const grd = g.createRadialGradient(x, y, 0, x, y, s);
+    grd.addColorStop(0, `rgba(90,80,60,${0.04 + r() * 0.08})`); grd.addColorStop(1, 'rgba(90,80,60,0)');
+    g.fillStyle = grd; g.fillRect(x - s, y - s, 2 * s, 2 * s);
+  }
+  for (let i = 0; i < 14; i++) {
+    g.fillStyle = `rgba(70,62,48,${0.05 + r() * 0.08})`;
+    g.fillRect(r() * w, r() * h, 1 + r() * 2, 30 + r() * 120);
+  }
+  // Stencil marks: short dark dashes and tiny scribbles, mostly in loose rows along the body.
+  g.lineCap = 'round';
+  for (let i = 0; i < 520; i++) {
+    const x = r() * w, y = r() * h;
+    g.strokeStyle = `rgba(30,28,24,${0.35 + r() * 0.5})`;
+    g.lineWidth = 0.8 + r() * 1.4;
+    g.beginPath(); g.moveTo(x, y);
+    // Mostly short dashes running along the body (the canvas's y on the lathed sections), like
+    // the video's stencilling.
+    if (r() < 0.65) g.lineTo(x + (r() - 0.5) * 1.5, y + 8 + r() * 20);
+    else { g.quadraticCurveTo(x + r() * 4, y - 3 + r() * 6, x + 2 + r() * 5, y + (r() - 0.5) * 4); }
+    g.stroke();
+  }
+  const img = g.getImageData(0, 0, w, h);
+  for (let i = 0; i < w * h; i++) { const n = (r() - 0.5) * 16; for (let c = 0; c < 3; c++) img.data[i * 4 + c] += n; }
+  g.putImageData(img, 0, 0);
+}, { repeat: [1, 1] });
+
+/** Dark paint for the nose, the ring behind it and the rear section: worn, slightly mottled. */
+const missileDarkTex = canvasTexture(128, 128, (g, w, h) => {
+  const r = seeded(4040);
+  g.fillStyle = '#3c3c3a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 40; i++) {
+    const x = r() * w, y = r() * h, s = 6 + r() * 20;
+    const grd = g.createRadialGradient(x, y, 0, x, y, s);
+    const k = r() < 0.5 ? '0,0,0' : '120,116,104';
+    grd.addColorStop(0, `rgba(${k},${0.1 + r() * 0.15})`); grd.addColorStop(1, `rgba(${k},0)`);
+    g.fillStyle = grd; g.fillRect(x - s, y - s, 2 * s, 2 * s);
+  }
+});
+
+/**
+ * A missile, nose toward +z (0.8) and tail at -0.75, as the video's: a dark ogive nose with a
+ * thin dark ring behind it, a cream body with stencil marks that widens toward the back, a wide
+ * dark rear section, then a short cream tail with four small fins joined by a ring.
+ */
 function makeMissile() {
   const g = new THREE.Group();
-  const cream = new THREE.MeshStandardMaterial({ color: 0xcfc6a8, map: grimeTex, roughness: 0.55, metalness: 0.15 });
-  const dark = metal(0x26272a, 0.5, 0.4);
-  const prof = [[0, -0.75], [0.06, -0.75], [0.072, -0.68], [0.072, 0.5], [0.064, 0.62], [0.045, 0.72], [0.02, 0.79], [0, 0.8]]
-    .map(([r, y]) => new THREE.Vector2(r, y));
-  const body = new THREE.Mesh(new THREE.LatheGeometry(prof, 16), cream);
-  body.rotation.x = Math.PI / 2;
-  g.add(body);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), dark);
-  nose.scale.set(0.8, 0.8, 1.6); nose.position.z = 0.72;
-  g.add(nose);
-  for (const [z, len] of [[0.5, 0.08], [-0.5, 0.28]]) {
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, len, 16), dark);
-    band.rotation.x = Math.PI / 2;
-    band.position.z = z;
-    g.add(band);
+  const cream = new THREE.MeshStandardMaterial({ color: 0xffffff, map: missileSkinTex, bumpMap: grimeTex, bumpScale: 0.5, roughness: 0.55, metalness: 0.1 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0xffffff, map: missileDarkTex, roughness: 0.5, metalness: 0.3 });
+  /** One lathed section; points are [radius, position along the missile]. */
+  const section = (pts, mat) => {
+    const m = new THREE.Mesh(new THREE.LatheGeometry(pts.map(([rr, y]) => new THREE.Vector2(rr, y)), 24), mat);
+    m.rotation.x = Math.PI / 2;
+    g.add(m);
+    return m;
+  };
+  // Tail: a short cream collar, closed at the back.
+  section([[0, -0.75], [0.05, -0.75], [0.07, -0.745], [0.074, -0.72], [0.076, -0.6]], cream);
+  // Rear section: dark, the widest part.
+  section([[0.076, -0.6], [0.079, -0.59], [0.079, -0.2], [0.078, -0.19]], dark);
+  // Body: cream, tapering gently toward the nose.
+  section([[0.078, -0.19], [0.075, 0.0], [0.066, 0.3], [0.058, 0.56]], cream);
+  // A dark ring, then a short, blunt ogive nose.
+  section([[0.058, 0.56], [0.06, 0.565], [0.06, 0.61], [0.058, 0.615]], dark);
+  const ogive = [];
+  for (let i = 0; i <= 12; i++) {
+    const u = i / 12;
+    ogive.push([0.058 * Math.pow(Math.max(0, 1 - u * u), 0.6), 0.615 + 0.17 * u]);
   }
-  const finMat = metal(0x3a3b3e, 0.5, 0.4);
+  ogive.push([0, 0.786]);
+  // The nose cap is a lighter, worn grey than the ring behind it.
+  section(ogive, new THREE.MeshStandardMaterial({ color: 0xa8a6a0, map: missileDarkTex, roughness: 0.45, metalness: 0.3 }));
+  // Fins: four small swept plates at the tail, set in an X, joined at their tips by a ring.
+  const finMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c2, map: missileSkinTex, roughness: 0.6, metalness: 0.15, side: THREE.DoubleSide });
   for (let k = 0; k < 4; k++) {
-    const f = new THREE.Mesh(plate([[0, 0], [0.2, 0], [0.2, 0.08], [0.07, 0.14]], 0.012, 0), finMat);
-    const a = new THREE.Group();
-    a.rotation.z = k * Math.PI / 2 + Math.PI / 4;
+    const f = new THREE.Mesh(plate([[0, 0], [0.14, 0], [0.11, 0.05], [0.04, 0.05]], 0.008, 0), finMat);
+    const arm = new THREE.Group();
+    arm.rotation.z = k * Math.PI / 2 + Math.PI / 4;
     f.rotation.y = -Math.PI / 2;
-    f.position.set(0, 0.07, -0.74);
-    a.add(f);
-    g.add(a);
+    f.position.set(0, 0.072, -0.74);
+    arm.add(f);
+    g.add(arm);
   }
+  const finRing = new THREE.Mesh(new THREE.TorusGeometry(0.122, 0.005, 6, 28), finMat);
+  finRing.position.z = -0.665;
+  g.add(finRing);
   // Motor flame and glow, hidden until it fires.
   const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
   flame.position.z = -0.95;
@@ -898,23 +1039,25 @@ function makeMissile() {
 /** A twin-finned air-superiority jet parked on the apron. +z forward. */
 function makeJet() {
   const g = new THREE.Group();
-  const skin = panelTexture('#8c9298', { cols: 8, rows: 4, repeat: [2, 2] });
-  const m = new THREE.MeshStandardMaterial({ color: 0x6a7078, map: skin, roughness: 0.5, metalness: 0.45 });
+  // Light grey, as the video's jets are.
+  const skin = panelTexture('#c4c8cc', { cols: 8, rows: 4, repeat: [2, 2], line: 'rgba(0,0,0,0.25)' });
+  const m = new THREE.MeshStandardMaterial({ color: 0xb4b8bc, map: skin, roughness: 0.5, metalness: 0.3 });
   const dark = metal(0x25282c, 0.6, 0.4);
   const fus = new THREE.Mesh(loft([
     { z: 7.4, w: 0.04, h: 0.04, y: 0.1, n: 2 },
     { z: 6.6, w: 0.32, h: 0.3, y: 0.05, n: 2.2 },
     { z: 5.2, w: 0.55, h: 0.55, y: 0.05, n: 2.4 },
     { z: 3.6, w: 0.68, h: 0.62, y: 0.1, n: 2.6 },
-    { z: 2.4, w: 1.55, h: 0.55, y: 0, n: 4, top: 0.9 },
-    { z: -1.5, w: 1.7, h: 0.52, y: 0, n: 4.5, top: 0.85 },
-    { z: -4.3, w: 1.45, h: 0.5, y: 0, n: 4 },
-    { z: -4.9, w: 1.3, h: 0.46, y: 0, n: 3.6 },
+    { z: 2.4, w: 1.5, h: 0.55, y: 0, n: 2.9, top: 0.9 },
+    { z: -1.5, w: 1.7, h: 0.52, y: 0, n: 3.1, top: 0.85 },
+    { z: -4.3, w: 1.45, h: 0.5, y: 0, n: 3 },
+    { z: -4.9, w: 1.3, h: 0.46, y: 0, n: 2.8 },
   ], 32), m);
   g.add(fus);
   // Box intakes with dark mouths.
   for (const s of [-1, 1]) {
-    const intake = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.85, 2.4), m);
+    // Intakes with rounded corners instead of sharp boxes.
+    const intake = new THREE.Mesh(loft([{ z: 1.2, w: 0.38, h: 0.42, n: 3.2 }, { z: -1.2, w: 0.38, h: 0.42, n: 3.2 }], 20), m);
     intake.position.set(s * 1.15, -0.15, 2.1);
     intake.rotation.x = 0.06;
     g.add(intake);
@@ -931,8 +1074,13 @@ function makeJet() {
     inner.rotation.y = Math.PI;
     g.add(inner);
   }
-  // Cropped-delta wings, stabilators and canted twin fins.
+  // Cropped-delta wings, stabilators and canted twin fins. A long, thin root extension runs
+  // from beside the cockpit into each wing, so wing and body blend as in the video.
   const wing = (s) => {
+    const lerx = new THREE.Mesh(plate([[0, 3.6], [0.55, 2.2], [1.6, 0.6], [1.6, -2.6], [0, -2.6]].map(([x, y]) => [x * s, y]), 0.16, 0.06), m);
+    lerx.rotation.x = Math.PI / 2;
+    lerx.position.set(s * 0.6, 0.06, -0.6);
+    g.add(lerx);
     const w = new THREE.Mesh(plate([[0, 2.2], [5.4, -1.4], [5.4, -2.3], [0, -2.6]].map(([x, y]) => [x * s, y]), 0.12, 0.03), m);
     w.rotation.x = Math.PI / 2;
     w.position.set(s * 1.3, 0, -0.6);
@@ -1021,22 +1169,88 @@ const doorTex = canvasTexture(128, 128, (g, w, h) => {
 
 /** A Nissen hut: ribbed corrugated half cylinder, brick end walls, sliding doors, door lamp. */
 /** `lamp`: the lamp over the door; `skin`: shell colour. */
-function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x6f7378 } = {}) {
+/**
+ * A Nissen-hut cross-section as the video's huts have it: sides sloping straight up to a flat
+ * top, the two top corners rounded. Points (x, y) run from the left foot over to the right foot.
+ */
+function trapezoidProfile(r) {
+  const top = r * 0.9, half = r * 0.5, d = r * 0.3;
+  const pts = [];
+  const line = (a, b, n) => { for (let i = 0; i < n; i++) pts.push([lerp(a[0], b[0], i / n), lerp(a[1], b[1], i / n)]); };
+  // A corner: a quadratic curve from `d` back along one edge to `d` along the next.
+  const back = (at, from) => { const l = Math.hypot(from[0] - at[0], from[1] - at[1]); return [at[0] + (from[0] - at[0]) * d / l, at[1] + (from[1] - at[1]) * d / l]; };
+  const corner = (from, at, to, n) => {
+    const p1 = back(at, from), p2 = back(at, to);
+    for (let i = 0; i < n; i++) {
+      const t = i / n, u = 1 - t;
+      pts.push([u * u * p1[0] + 2 * u * t * at[0] + t * t * p2[0], u * u * p1[1] + 2 * u * t * at[1] + t * t * p2[1]]);
+    }
+    return p2;
+  };
+  const A = [-r, 0], B = [-half, top], C = [half, top], D = [r, 0];
+  line(A, back(B, A), 10);
+  const b2 = corner(A, B, C, 8);
+  line(b2, back(C, B), 8);
+  const c2 = corner(B, C, D, 8);
+  line(c2, D, 10);
+  pts.push(D);
+  return pts;
+}
+
+function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x6f7378, plain = false, trapezoid = false } = {}) {
+  const profile = trapezoid ? trapezoidProfile(r) : null;
   const g = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: skinCol, map: repeatOf(rustSkinTex, Math.PI * r / 3, len / 3), bumpMap: repeatOf(rustBumpTex, Math.PI * r / 1.5, len / 1.5), bumpScale: 1.6,
+  // `plain`: clean light-grey sheeting, without the rust streaks.
+  const skin = new THREE.MeshStandardMaterial({ color: skinCol, map: plain ? null : repeatOf(rustSkinTex, Math.PI * r / 3, len / 3), bumpMap: repeatOf(rustBumpTex, Math.PI * r / 1.5, len / 1.5), bumpScale: 1.6,
     roughness: 0.6, metalness: 0.5, side: THREE.DoubleSide });
   // Corrugations run over the arch from ground to ground, so the waves step along the length.
-  const shellGeo = corrugate(new THREE.CylinderGeometry(r, r, len, 40, Math.round(len / 0.32 * 6), true, 0, Math.PI), 0.32, 0.05,
-    (x, y) => y, (x, y, z) => { const l = Math.hypot(x, z) || 1; return [x / l, 0, z / l]; });
-  const shell = new THREE.Mesh(shellGeo, skin);
-  shell.rotation.z = Math.PI / 2;
-  shell.rotation.y = Math.PI / 2;
+  let shell;
+  if (trapezoid) {
+    // Sweep the profile along the length, corrugated the same way as the round huts.
+    const segs = Math.round(len / 0.32 * 6), pos = [], uv = [], idx = [];
+    const n = profile.length;
+    let total = 0;
+    const arc = profile.map((pt, i) => (i ? (total += Math.hypot(pt[0] - profile[i - 1][0], pt[1] - profile[i - 1][1])) : 0));
+    for (let j = 0; j <= segs; j++) {
+      const z = -len / 2 + j * len / segs;
+      const wave = 0.05 * Math.sin(z / 0.32 * Math.PI * 2);
+      for (let i = 0; i < n; i++) {
+        const a = profile[Math.max(0, i - 1)], b = profile[Math.min(n - 1, i + 1)];
+        const tl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        // Outward normal of the profile (it runs left to right over the top).
+        const nx = -(b[1] - a[1]) / tl, ny = (b[0] - a[0]) / tl;
+        pos.push(profile[i][0] + nx * wave, profile[i][1] + ny * wave, z);
+        uv.push(arc[i] / total, j / segs);
+      }
+    }
+    for (let j = 0; j < segs; j++) for (let i = 0; i < n - 1; i++) {
+      const a = j * n + i, b = a + n;
+      idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    shell = new THREE.Mesh(geo, skin);
+  } else {
+    const shellGeo = corrugate(new THREE.CylinderGeometry(r, r, len, 40, Math.round(len / 0.32 * 6), true, 0, Math.PI), 0.32, 0.05,
+      (x, y) => y, (x, y, z) => { const l = Math.hypot(x, z) || 1; return [x / l, 0, z / l]; });
+    shell = new THREE.Mesh(shellGeo, skin);
+    shell.rotation.z = Math.PI / 2;
+    shell.rotation.y = Math.PI / 2;
+  }
   g.add(shell);
   const ribMat = metal(0x50545a, 0.5, 0.6);
+  const ribs = [];
   for (let k = 0; k <= 6; k++) {
-    const rib = new THREE.Mesh(new THREE.TorusGeometry(r + 0.05, 0.09, 6, 40, Math.PI), ribMat);
+    const ribGeo = trapezoid
+      ? new THREE.TubeGeometry(new THREE.CatmullRomCurve3(profile.map(([x, y]) => V(x * (1 + 0.05 / r), y * (1 + 0.05 / r), 0))), 48, 0.09, 6)
+      : new THREE.TorusGeometry(r + 0.05, 0.09, 6, 40, Math.PI);
+    const rib = new THREE.Mesh(ribGeo, ribMat);
     rib.position.z = -len / 2 + k * len / 6;
     g.add(rib);
+    ribs.push(rib);
   }
   const plinth = new THREE.Mesh(new THREE.BoxGeometry(2 * r + 0.8, 0.5, len + 0.8), new THREE.MeshStandardMaterial({ color: 0x4a4a48, roughness: 0.95 }));
   plinth.position.y = 0.05;
@@ -1044,7 +1258,8 @@ function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x
   const wall = new THREE.MeshStandardMaterial({ color: 0x3d4045, map: panelTexture('#5a5d62', { cols: 10, rows: 6 }), roughness: 0.85 });
   let front;
   for (const s of [-1, 1]) {
-    const end = new THREE.Mesh(new THREE.CircleGeometry(r, 40, 0, Math.PI), wall);
+    const endGeo = trapezoid ? new THREE.ShapeGeometry(new THREE.Shape(profile.map(([x, y]) => new THREE.Vector2(x, y)))) : new THREE.CircleGeometry(r, 40, 0, Math.PI);
+    const end = new THREE.Mesh(endGeo, wall);
     end.position.z = s * len / 2;
     if (s < 0) end.rotation.y = Math.PI;
     else front = end;
@@ -1061,7 +1276,7 @@ function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x
     win.position.set(s * r * 0.72, r * 0.42, len / 2 + 0.03);
     g.add(win);
   }
-  g.userData = { door, front, shell };
+  g.userData = { door, front, shell, ribs };
   if (!withLamp) {
     g.children.filter((c) => c.material?.color?.getHex() === 0x3a3418).forEach((c) => c.material.color.setHex(0x0c0c0e));
     door.material.color.setScalar(0.22);
@@ -1076,7 +1291,7 @@ function makeHangar(len = 22, r = 7, { lamp: withLamp = true, skin: skinCol = 0x
   const pl = new THREE.PointLight(0xffe4a8, 25, 14, 1.4);
   pl.position.copy(lamp.position).add(new THREE.Vector3(0, -0.3, 0.6));
   g.add(pl);
-  g.userData = { door, front, shell };
+  g.userData = { door, front, shell, ribs };
   return g;
 }
 
@@ -1252,7 +1467,9 @@ function makeTower() {
   head.add(target);
   spot.target = target;
   // Glare when the lamp swings round to face the lens.
-  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: raysTex, color: 0xdfe6ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false }));
+  // Drawn over everything, so the lamp head's own geometry never cuts a dark shape out of it.
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: raysTex, color: 0xdfe6ff, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, opacity: 0, fog: false }));
+  flare.renderOrder = 5;
   flare.position.z = 0.45;
   flare.scale.setScalar(5);
   head.add(flare);
@@ -1478,6 +1695,23 @@ const additive = (map, color = 0xffffff, opacity = 0) => new THREE.MeshBasicMate
 const repeatOf = (tex, x, y) => { const t = tex.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(x, y); t.needsUpdate = true; return t; };
 
 /** A cloud deck that rides with the camera, lit by the moon, over a near-black night. */
+/** Moonlit cloud: a soft halo, brightest near the middle, broken up by streaky wisps. */
+const moonCloudTex = canvasTexture(256, 128, (g, w, h) => {
+  const r = seeded(808);
+  for (let i = 0; i < 46; i++) {
+    const x = w / 2 + (r() - 0.5) * w * 0.8, y = h / 2 + (r() - 0.5) * h * 0.55;
+    const near = 1 - Math.min(1, Math.hypot((x - w / 2) / (w / 2), (y - h / 2) / (h / 2)));
+    const sx = 18 + r() * 46, sy = 4 + r() * 9;
+    g.save(); g.translate(x, y); g.scale(1, sy / sx);
+    const grd = g.createRadialGradient(0, 0, 0, 0, 0, sx);
+    grd.addColorStop(0, `rgba(255,255,255,${0.12 + near * 0.35})`); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd; g.fillRect(-sx, -sx, 2 * sx, 2 * sx); g.restore();
+  }
+  const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, h * 0.45);
+  grd.addColorStop(0, 'rgba(255,255,255,0.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, w, h);
+});
+
 function nightSky(scene, tint = 0xffffff) {
   const sky = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000),
     new THREE.MeshBasicMaterial({ map: repeatOf(cloudTex, 7, 7), color: tint, fog: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
@@ -1489,6 +1723,12 @@ function nightSky(scene, tint = 0xffffff) {
   moon.scale.set(300, 300, 1);
   moon.renderOrder = -1;
   scene.add(moon);
+  // Cloud lit by the moon: a halo with wisps drifting across it, as in the video.
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonCloudTex, color: 0x9c98c0, fog: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.55 }));
+  halo.scale.set(2.4, 1.2, 1);
+  halo.renderOrder = -1;
+  moon.add(halo);
+  moon.userData.halo = halo;
   return { sky, moon };
 }
 
@@ -1509,6 +1749,12 @@ function makeWall(len) {
     const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.4, 0.9), conc);
     b.position.set(x, 1.2, 0.5);
     g.add(b);
+    // Blocky merlons along the top, as in the video.
+    for (const dx of [0, 1.6]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.55), conc);
+      m.position.set(x + dx, 2.9, 0);
+      g.add(m);
+    }
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 5), metal(0x6a6e73));
     post.position.set(x, 3.4, 0);
     post.rotation.x = 0.25;
@@ -1526,8 +1772,8 @@ function signSet() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x06070b);
   scene.fog = new THREE.Fog(0x0b0c12, 20, 160);
-  scene.add(new THREE.HemisphereLight(0x3a4060, 0x0c0c0c, 0.45));
-  const moonLight = new THREE.DirectionalLight(0x8a90c0, 0.55);
+  scene.add(new THREE.HemisphereLight(0x404450, 0x0c0c0c, 0.45));
+  const moonLight = new THREE.DirectionalLight(0x9a9cb0, 0.55);
   moonLight.position.set(-30, 40, -60);
   scene.add(moonLight);
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: 0x4a4c4e, map: groundTex, roughness: 1 }));
@@ -1536,7 +1782,8 @@ function signSet() {
   const { sky, moon } = nightSky(scene, 0x6a6a78);
   // Modelled wire where the camera can see it, the flat texture further out.
   const NEAR = [-5.1, 6.1];
-  const wire = chainLink(NEAR[0], NEAR[1], 0, 4.4, new THREE.MeshStandardMaterial({ color: 0xb4b8be, metalness: 0.45, roughness: 0.42 }));
+  // Neutral galvanised steel, as in the video (it read blue under the moonlight).
+  const wire = chainLink(NEAR[0], NEAR[1], 0, 4.4, new THREE.MeshStandardMaterial({ color: 0xb8b6b0, metalness: 0.3, roughness: 0.5, envMapIntensity: 0.15 }));
   wire.position.z = -0.02;
   scene.add(wire);
   for (const [a, b] of [[-40, NEAR[0]], [NEAR[1], 40]]) {
@@ -1606,7 +1853,7 @@ function signSet() {
   scene.add(jetLight);
   scene.add(jet);
   // Moonlight on the sign and fence, so it still reads when the tube is out.
-  const fill = new THREE.PointLight(0xa8b0d0, 3.2, 14, 1);
+  const fill = new THREE.PointLight(0xb8b8bc, 3.2, 14, 1);
   fill.position.set(1.5, 2.5, 4);
   scene.add(fill);
   const hut = makeHangar(18, 5, { lamp: false });
@@ -1634,7 +1881,8 @@ function baseSet() {
   const frontLight = new THREE.DirectionalLight(0xb4b4c8, 0);
   frontLight.position.set(30, 50, 70);
   scene.add(frontLight);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 800), new THREE.MeshStandardMaterial({ color: 0xe0e0e0, map: repeatOf(groundTex, 260, 52), roughness: 1 }));
+  // Sand, as in the video: drifts and ripples, warm under the cold moonlight.
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 800), new THREE.MeshStandardMaterial({ color: 0x8e8a80, map: repeatOf(sandTex, 200, 40), roughness: 1 }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.x = 750;
   scene.add(ground);
@@ -1644,7 +1892,7 @@ function baseSet() {
   // Apron: two jets close, huts end-on behind, the tower, the wall; a tanker on the right.
   const X = SET.apron;
   const apronJets = [at(makeJet(), X + 0, 1.5, 0, -Math.PI / 2 + 0.75), at(makeJet(), X - 3, 1.5, -11, -Math.PI / 2 + 0.7), at(makeJet(), X + 24, 1.5, -16, -Math.PI / 2 + 0.6)];
-  for (const x of [-16, -6, 4, 14]) at(makeHangar(18, 4.2, { lamp: false, skin: 0x8a8e94 }), X + x, 0, -52);
+  for (const x of [-16, -6, 4, 14]) at(makeHangar(18, 4.2, { lamp: false, skin: 0x8a8e94, trapezoid: true }), X + x, 0, -52);
   at(makeTower(), X + 26, 0, -58);
   at(makeWall(140), X, 0, -66);
   const apronTanker = at(makeTruck('tanker'), X + 22, 0, -4, -Math.PI / 2 - 0.5);
@@ -1667,8 +1915,8 @@ function baseSet() {
 
   // High shot: hut, bunker and tower inside the wall's corner.
   const H = SET.high;
-  at(makeHangar(14, 4.0, { lamp: false, skin: 0xd0d0d4 }), H - 9, 0, 1, 1.0);
-  at(makeHangar(14, 4.0, { lamp: false, skin: 0xd0d0d4 }), H - 22, 0, 4, 1.0);
+  at(makeHangar(14, 4.0, { lamp: false, skin: 0xb8b8bc, plain: true, trapezoid: true }), H - 9, 0, 1, 1.0);
+  at(makeHangar(14, 4.0, { lamp: false, skin: 0xb8b8bc, plain: true, trapezoid: true }), H - 22, 0, 4, 1.0);
   const bunker = at(makeBunker({ cornerLamp: true }), H + 5, 0, 3.5, 0.75);
   at(makeTower(), H - 1, 0, -7);
   const highWall = at(makeWall(120), H - 4, 0, -16, 0.22);
@@ -1724,9 +1972,18 @@ function baseSet() {
   // The searchlight's beam is a long additive frustum from the tower's lamp head: it starts
   // as wide as the lens (radius 0.4) rather than at a point, and spreads out from there.
   const tw = moonTower.userData;
-  tw.beam.material = additive(beamTex, 0xdfe6ff, 0);
-  tw.beam.geometry = new THREE.CylinderGeometry(0.4, 5.5, 90, 24, 1, true);
-  tw.beam.position.z = 45.3;
+  // Misty, as in the video: a wide soft glow round a brighter core, fading along its length,
+  // with uneven density as if lighting drifting haze. (Drawn as fake volumetric light.)
+  tw.beam.material = volumeBeam(0xcfd8f0, { len: 40, rim: 0.8, fall: 1.7, hot: 0.4, mist: 0.45 });
+  tw.beam.geometry = new THREE.CylinderGeometry(1.0, 0.25, 40, 32, 16, true).translate(0, 20, 0);
+  tw.beam.rotation.x = Math.PI / 2;
+  tw.beam.position.z = 0.3;
+  // A second, wider and fainter shell gives the beam its fuzzy edge.
+  tw.beamHalo = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 0.5, 40, 32, 16, true).translate(0, 20, 0), volumeBeam(0xb8c4e0, { len: 40, rim: 0.5, fall: 2.0, hot: 0, mist: 0.6 }));
+  tw.beamHalo.rotation.x = Math.PI / 2;
+  tw.beamHalo.position.z = 0.3;
+  tw.beam.parent.add(tw.beamHalo);
+  tw.setBeam = (v) => { tw.beam.material.uniforms.opacity.value = v * 1.6; tw.beamHalo.material.uniforms.opacity.value = v * 0.45; };
 
   // Outside the hangar for the breakout.
   const O = SET.out;
@@ -1735,9 +1992,10 @@ function baseSet() {
   hangar.userData.door.material.color.setScalar(0.25);
   const outTower = at(makeTower(), O + 10, 0, -21);
   const shed = at(makeBunker(), O + 17, 0, -16, -0.3);
-  at(makeHangar(16, 4.2, { lamp: false }), O - 17, 0, -24, 0.3);
+  // A Nissen hut on the left, its end toward the camera, and the tanker in the foreground.
+  at(makeHangar(16, 4.2, { lamp: false, skin: 0x9a9ea8, trapezoid: true }), O - 12, 0, -14, 0.05);
   at(makeWall(160), O, 0, -60);
-  at(makeTruck('troop'), O - 5.5, 0, -1, Math.PI / 2 + 0.15);
+  at(makeTruck('tanker'), O - 5.6, 0, 1.2, -2.2);
   const outLight = new THREE.PointLight(0xc8ccff, 0, 70, 1.5);
   scene.add(outLight);
   // Fireball, smoke, the white core and the debris.
@@ -1756,12 +2014,21 @@ function baseSet() {
     scene.add(s);
     smoke.push(s);
   }
-  const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: raysTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false }));
+  const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: raysTex, color: 0xb4d2ff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false }));
   core.position.set(O, 5, -20);
   scene.add(core);
+  // A wide, soft blue-white bloom round the core that washes the whole frame cyan.
+  const bloom = new THREE.Sprite(new THREE.SpriteMaterial({ map: pondTex, color: 0x5c9cff, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, opacity: 0, fog: false }));
+  bloom.position.set(O, 5, -19);
+  bloom.scale.setScalar(70);
+  scene.add(bloom);
+  // One big sheet of hangar skin that tumbles toward the camera.
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.06, 3.4), new THREE.MeshStandardMaterial({ color: 0x5a5c62, map: corrugated, roughness: 0.6, metalness: 0.4, side: THREE.DoubleSide }));
+  slab.visible = false;
+  scene.add(slab);
   const debris = [];
-  for (let i = 0; i < 34; i++) {
-    const d = new THREE.Mesh(new THREE.BoxGeometry(0.3 + r() * 1.4, 0.05, 0.3 + r() * 1.1), new THREE.MeshStandardMaterial({ color: 0xc0c6d0, map: corrugated, roughness: 0.5, metalness: 0.5, side: THREE.DoubleSide }));
+  for (let i = 0; i < 18; i++) {
+    const d = new THREE.Mesh(new THREE.BoxGeometry(0.3 + r() * 1.4, 0.05, 0.3 + r() * 1.1), new THREE.MeshStandardMaterial({ color: 0x9aa0aa, map: corrugated, roughness: 0.5, metalness: 0.5, side: THREE.DoubleSide }));
     d.visible = false;
     d.userData = { p: V(O + (r() - 0.5) * 14, 2 + r() * 8, -22 + (r() - 0.5) * 6), v: V((r() - 0.5) * 34, 6 + r() * 20, 8 + r() * 26), w: V(r() * 9, r() * 9, r() * 9) };
     scene.add(d);
@@ -1771,11 +2038,42 @@ function baseSet() {
   heli.scale.setScalar(1.3);
   heli.visible = false;
   scene.add(heli);
-  return { scene, sky, moon, hemi, moonLight, frontLight, poolSpot, apronJets, apronTanker, pool, bunker, highWall, moonTower, moonTanker, block, hangar, outTower, shed, outLight, fire, smoke, core, debris, heli };
+  return { scene, sky, moon, hemi, moonLight, frontLight, poolSpot, apronJets, apronTanker, pool, bunker, highWall, moonTower, moonTanker, block, hangar, outTower, shed, outLight, fire, smoke, core, bloom, slab, debris, heli };
 }
 
 // E-P: inside the hangar.
 const HALL = { w: 9.5, wall: 4.8, arch: 5.6, len: 22 };
+
+/** A shaft of light: an open cone with its apex at the origin, opening along +y. */
+const beamGeo = (() => { const g = new THREE.ConeGeometry(0.55, 3.6, 24, 6, true); g.rotateX(Math.PI); g.translate(0, 1.8, 0); return g; })();
+/**
+ * Fake volumetric light for a beam cone: brightest along its axis and at the lamp, fading to
+ * nothing at the cone's silhouette and toward its far end, so it reads as lit dust in the air
+ * rather than a solid cone.
+ */
+function volumeBeam(color, { len = 3.6, rim = 1.3, fall = 1.5, hot = 0.6, mist = 0 } = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: { color: { value: new THREE.Color(color) }, opacity: { value: 0 }, len: { value: len },
+      rimPow: { value: rim }, fallPow: { value: fall }, hot: { value: hot }, mist: { value: mist } },
+    vertexShader: `varying vec3 vN; varying vec3 vV; varying float vY; varying vec3 vP;
+      void main() { vY = position.y; vP = position; vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vV = -mv.xyz; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform vec3 color; uniform float opacity; uniform float len;
+      uniform float rimPow; uniform float fallPow; uniform float hot; uniform float mist;
+      varying vec3 vN; varying vec3 vV; varying float vY; varying vec3 vP;
+      void main() {
+        float rim = pow(abs(dot(normalize(vN), normalize(vV))), rimPow);
+        float along = clamp(vY / len, 0.0, 1.0);
+        float fall = pow(1.0 - along, fallPow);
+        // Drifting density in the air: soft, uneven patches along and across the beam.
+        float m = 1.0 - mist * (0.5 + 0.5 * sin(vP.y * 0.45 + sin(vP.x * 0.8) * 1.7) * sin(vP.y * 0.17 + vP.z * 0.6 + 1.3));
+        // Hotter and whiter near the lamp.
+        vec3 c = mix(color, vec3(1.0, 0.97, 0.8), hot * pow(1.0 - along, 6.0));
+        gl_FragColor = vec4(c * rim * fall * m * opacity, 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+  });
+}
 
 function hangarSet() {
   const { w: W, wall: HW, arch: AH, len: L } = HALL;
@@ -1814,7 +2112,8 @@ function hangarSet() {
     if (s < 0) end.rotation.y = Math.PI;
     scene.add(end);
   }
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * W, 2 * L), new THREE.MeshStandardMaterial({ color: 0x5a5a56, map: repeatOf(concreteTex, 10, 18), roughness: 0.75, metalness: 0.2 }));
+  // Dark granite with bright flecks, which glint as the camera moves.
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * W, 2 * L), new THREE.MeshStandardMaterial({ color: 0x8a8884, map: repeatOf(speckleTex, 8, 18), roughness: 0.42, metalness: 0.35 }));
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
   // Ridge lights: a beam carrying a row of fluorescent panels.
@@ -1835,15 +2134,13 @@ function hangarSet() {
   // Floor uplights along both walls, each throwing a fan of warm light up the wall.
   const uplights = { [-1]: [], [1]: [] };
   const washMat = { [-1]: additive(washTex, 0xfff0c8, 0), [1]: additive(washTex, 0xfff0c8, 0) };
-  const lampMat = { [-1]: new THREE.MeshBasicMaterial({ color: 0x111111 }), [1]: new THREE.MeshBasicMaterial({ color: 0x111111 }) };
   for (const s of [-1, 1]) {
     for (let z = -L + 2.5; z < L - 1; z += 3) {
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.36), lampMat[s]);
-      lamp.position.set(s * (W - 0.3), 0.08, z);
-      scene.add(lamp);
-      const wash = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 5.6), washMat[s]);
+      // No visible housing: in the video only the lamp's light shows.
+      // A short fan, about a quarter of the way up the wall, as in the video.
+      const wash = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.6), washMat[s]);
       wash.rotation.y = -s * Math.PI / 2;
-      wash.position.set(s * (W - 0.04), 2.75, z);
+      wash.position.set(s * (W - 0.04), 0.8, z);
       scene.add(wash);
     }
     const fill = [-10, 6].map((z) => {
@@ -1852,11 +2149,11 @@ function hangarSet() {
       scene.add(l);
       return l;
     });
-    uplights[s] = { wash: washMat[s], lamp: lampMat[s], fill };
+    uplights[s] = { wash: washMat[s], fill };
   }
 
   // The pad: two tiers, a hazard ring on the floor, hoses, amber beacons round the lower tier.
-  const padTop = new THREE.MeshStandardMaterial({ color: 0x3c3c3a, map: repeatOf(concreteTex, 3, 3), roughness: 0.55, metalness: 0.5 });
+  const padTop = new THREE.MeshStandardMaterial({ color: 0x77756f, map: repeatOf(speckleTex, 4, 4), roughness: 0.45, metalness: 0.45 });
   const t1 = new THREE.Mesh(new THREE.CylinderGeometry(6.6, 6.75, 0.42, 64), padTop);
   t1.position.y = 0.21;
   scene.add(t1);
@@ -1869,15 +2166,23 @@ function hangarSet() {
   const stripes = canvasTexture(256, 16, (g, w, h) => {
     g.fillStyle = '#121212'; g.fillRect(0, 0, w, h);
     for (let x = 0; x < w; x += 16) { if ((x / 16) % 2) continue; g.fillStyle = '#c8a818'; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 12, 0); g.lineTo(x + 6, h); g.lineTo(x - 6, h); g.fill(); }
-  }, { repeat: [10, 1] });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(8.0, 8.6, 96, 1), new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.7 }));
+  }, { repeat: [22, 1] });
+  // A narrow band, as in the video, not a wide road marking.
+  const ring = new THREE.Mesh(new THREE.RingGeometry(8.0, 8.32, 160, 1), new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.7 }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.01;
   // RingGeometry's UVs are planar; remap u round the ring so the stripes run along it.
   { const p = ring.geometry.attributes.position, uv = ring.geometry.attributes.uv;
-    for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getY(i), p.getX(i)); uv.setXY(i, (a / (Math.PI * 2) + 0.5), Math.hypot(p.getX(i), p.getY(i)) > 8.3 ? 1 : 0); } }
+    for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getY(i), p.getX(i)); uv.setXY(i, (a / (Math.PI * 2) + 0.5), Math.hypot(p.getX(i), p.getY(i)) > 8.16 ? 1 : 0); } }
   scene.add(ring);
   const rubber = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.6, metalness: 0.2 });
-  for (const [a, len] of [[0.35, 1], [2.8, 0.9], [3.5, 1.1], [5.9, 0.9]]) {
+  // A thick ribbed hose laid round the top of the lower tier's wall.
+  const ribs = canvasTexture(64, 8, (g, w, h) => {
+    for (let x = 0; x < w; x++) { const v = 40 + 70 * Math.max(0, Math.sin(x / w * Math.PI * 8)); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, 0, 1, h); }
+  }, { repeat: [60, 1] });
+  const hose = new THREE.Mesh(new THREE.TorusGeometry(6.42, 0.21, 12, 180), new THREE.MeshStandardMaterial({ color: 0x6a6a64, map: ribs, bumpMap: ribs, bumpScale: 2, roughness: 0.4, metalness: 0.55 }));
+  hose.rotation.x = Math.PI / 2; hose.position.y = 0.42 + 0.2;
+  scene.add(hose);
+  for (const [a, len] of [[0.35, 1], [0.85, 0.7], [1.95, 0.85], [2.8, 0.9], [3.5, 1.1], [5.9, 0.9]]) {
     const pts = [];
     for (let i = 0; i <= 7; i++) {
       const rr = 6.6 + i * 0.75 * len;
@@ -1885,94 +2190,153 @@ function hangarSet() {
       pts.push(V(Math.cos(ww) * rr, i === 0 ? 0.3 : 0.12, Math.sin(ww) * rr));
     }
     scene.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.14, 8), rubber));
-    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.4, 12), metal(0xa0a2a6, 0.3, 0.9));
+    // White couplings where the hoses plug into the pad.
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.4, 12), metal(0xd8d8d0, 0.35, 0.4));
     c.position.copy(pts[0]); c.rotation.z = Math.PI / 2; c.rotation.y = -a;
     scene.add(c);
   }
+  // Amber beacons round the lower tier, as in the video: a lamp that spins like a propeller in
+  // the plane facing out from the pad, throwing two opposite shafts of light. Each has a soft
+  // flare on its lens, a pool where the lower shaft meets the floor, and a streak reflected in
+  // the polished floor under it.
   const beacons = [];
   for (let k = 0; k < 8; k++) {
     const a = k / 8 * Math.PI * 2 + Math.PI / 8;
-    const p = V(Math.cos(a) * 6.75, 0.22, Math.sin(a) * 6.75);
-    const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.3, 14), metal(0x8a8c90, 0.35, 0.85));
+    const out = V(Math.cos(a), 0, Math.sin(a));
+    const p = V(Math.cos(a) * 6.9, 0.24, Math.sin(a) * 6.9);
+    const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.32, 16), metal(0x8a8c90, 0.35, 0.85));
     housing.rotation.z = Math.PI / 2; housing.rotation.y = -a;
     housing.position.copy(p);
     scene.add(housing);
-    const lens = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 10), new THREE.MeshBasicMaterial({ color: 0x302010 }));
-    lens.position.copy(p).add(V(Math.cos(a) * 0.14, 0.02, Math.sin(a) * 0.14));
+    const lens = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), new THREE.MeshBasicMaterial({ color: 0x302010 }));
+    lens.position.copy(p).addScaledVector(out, 0.14).add(V(0, 0.02, 0));
     scene.add(lens);
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, color: 0xffb030, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
-    halo.position.copy(lens.position);
-    halo.scale.set(0.45, 0.45, 1);
-    scene.add(halo);
-    const head = new THREE.Group();
-    head.position.copy(lens.position);
-    const beam = new THREE.Mesh(new THREE.ConeGeometry(0.9, 6, 20, 1, true), additive(beamTex, 0xffb020, 0));
-    beam.rotation.x = -Math.PI / 2;
-    beam.position.z = 3.0;
-    head.add(beam);
-    scene.add(head);
-    beacons.push({ a, head, lens, beam, halo });
+    const flare = (map, color, size) => {
+      const f = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false }));
+      f.position.copy(lens.position).addScaledVector(out, 0.06);
+      f.scale.setScalar(size);
+      scene.add(f);
+      return f;
+    };
+    const core = flare(pondTex, 0xfffbe8, 0.75);
+    const glow = flare(pondTex, 0xffc828, 2.2);
+    // The spinning head: local z points out from the pad; the shafts lie in its x-y plane,
+    // tipped a little outward so the lower one lands on the floor in front of the lamp.
+    const mount = new THREE.Group();
+    mount.position.copy(lens.position);
+    mount.lookAt(lens.position.clone().add(out));
+    const spin = new THREE.Group();
+    mount.add(spin);
+    const beams = [1, -1].map((s) => {
+      const beam = new THREE.Mesh(beamGeo, volumeBeam(0xffd23a));
+      beam.quaternion.setFromUnitVectors(V(0, 1, 0), V(0, s * Math.cos(0.22), Math.sin(0.22)));
+      spin.add(beam);
+      return beam;
+    });
+    scene.add(mount);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), additive(pondTex, 0xffd040, 0));
+    pool.rotation.x = -Math.PI / 2;
+    scene.add(pool);
+    const streak = new THREE.Sprite(new THREE.SpriteMaterial({ map: pondTex, color: 0xffd040, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+    streak.center.set(0.5, 0.92);
+    streak.position.copy(p).addScaledVector(out, 0.42).setY(0.02);
+    streak.scale.set(0.34, 1.3, 1);
+    scene.add(streak);
+    // The two beacons in front of the pad also light the floor and the pad's wall for real, so
+    // the polished floor shows a highlight under them.
+    let light = null;
+    if (k === 1 || k === 2) {
+      light = new THREE.PointLight(0xffc840, 0, 4.5, 1.6);
+      light.position.copy(lens.position).addScaledVector(out, 0.35).add(V(0, 0.15, 0));
+      scene.add(light);
+    }
+    beacons.push({ a, out, lens, mount, spin, beams, core, glow, pool, streak, light, phase: k * 0.9 });
   }
   const amber = [0, 1].map(() => {
-    const l = new THREE.SpotLight(0xffa818, 0, 22, 0.32, 0.5, 1.2);
+    const l = new THREE.SpotLight(0xffc830, 0, 14, 0.2, 0.6, 1.3);
     scene.add(l, l.target);
     return l;
   });
-  // The pedestal the gunship sits on, with four clamp arms that fold down once it lifts.
-  const cream = new THREE.MeshStandardMaterial({ color: 0xa8986e, roughness: 0.45, metalness: 0.35 });
-  const ped = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.25, 0.75, 32), cream);
-  ped.position.y = 0.87 + 0.37;
+  // Third tier: a raised ring round a sunken well. The pedestal and the four clamps stand on
+  // the well's floor (the top of the second tier).
+  const WELL = 0.87;
+  const tier3 = new THREE.Mesh(new THREE.LatheGeometry([V(2.7, WELL, 0), V(2.7, WELL + 0.3, 0), V(2.78, WELL + 0.34, 0), V(3.5, WELL + 0.34, 0), V(3.6, WELL, 0)].map((v) => new THREE.Vector2(v.x, v.y)), 72), padTop.clone());
+  tier3.material.side = THREE.DoubleSide;
+  scene.add(tier3);
+  const wellFloor = new THREE.Mesh(new THREE.CircleGeometry(2.7, 64), new THREE.MeshStandardMaterial({ color: 0x8a7e66, map: repeatOf(mottleTex, 2, 2), roughness: 0.6, metalness: 0.3 }));
+  wellFloor.rotation.x = -Math.PI / 2; wellFloor.position.y = WELL + 0.005;
+  scene.add(wellFloor);
+  // Pedestal: a waisted column under a wide cushion with a rolled, rounded rim, in grimy
+  // olive-bronze cast metal like the clamps.
+  const bronze = new THREE.MeshStandardMaterial({ color: 0x9a8a62, map: repeatOf(mottleTex, 2, 1), roughness: 0.4, metalness: 0.45, bumpMap: mottleTex, bumpScale: 0.6 });
+  // A lamp in the gap under the belly for the clamp shot, which is lit from there in the video:
+  // a sheen across the cushion and bright bevels on the clamps.
+  const clampLight = new THREE.PointLight(0xfff2dc, 0, 5, 1.5);
+  clampLight.position.set(0.3, 2.35, -1.7);
+  scene.add(clampLight);
+  const pedProfile = [[0.85, 0], [0.7, 0.1], [0.62, 0.28], [0.7, 0.42], [0.95, 0.5], [1.12, 0.56], [1.17, 0.64], [1.12, 0.71], [0.9, 0.74], [0.5, 0.75], [0.001, 0.755]];
+  const ped = new THREE.Mesh(new THREE.LatheGeometry(pedProfile.map(([r, y]) => new THREE.Vector2(r, WELL + y)), 48), bronze);
   scene.add(ped);
-  const capTop = new THREE.Mesh(new THREE.CircleGeometry(1.1, 32), new THREE.MeshStandardMaterial({ color: 0xb8ae94, roughness: 0.5, metalness: 0.25 }));
-  capTop.rotation.x = -Math.PI / 2; capTop.position.y = 1.625;
-  scene.add(capTop);
-  // Clamp arms, as in the video: a flat-sided swan neck rising off the pad beside the drum and
-  // curling outward, topped by an angular jaw block with a raked fin at its outer end. Each is
-  // drawn in its own radial plane (u outward, v up) and extruded sideways.
-  const facet = new THREE.MeshStandardMaterial({ color: 0xa8986e, roughness: 0.5, metalness: 0.3, flatShading: true });
-  const sideways = (pts, width, bevel = 0.03) => {
+  // Clamps, as in the video: a fixed J-shaped arm of straight, bevelled segments rising from
+  // beside the pedestal's foot, topped by an anvil jaw (a trapezoid block under a thin flange
+  // with an upturned horn) that grips the belly. Only the jaw moves: it tilts level to let go.
+  // Each clamp is drawn in its own radial plane (u outward, v up) and extruded sideways.
+  const facet = new THREE.MeshStandardMaterial({ color: 0x9a8a62, map: repeatOf(mottleTex, 1, 1), roughness: 0.5, metalness: 0.35, flatShading: true });
+  const prism = (pts, width, bevel = 0.025) => {
     const sh = new THREE.Shape();
     pts.forEach(([u, v], i) => (i ? sh.lineTo(u, v) : sh.moveTo(u, v)));
     sh.closePath();
-    const geo = new THREE.ExtrudeGeometry(sh, { depth: width, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 4 });
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: width, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1 });
     geo.translate(0, 0, -width / 2);
-    geo.rotateY(-Math.PI / 2);
-    return new THREE.Mesh(geo, facet);
+    return geo;
   };
-  // The neck's centre line, then a band either side of it.
-  const spine = [[0, 0], [0.18, 0.25], [0.42, 0.42], [0.62, 0.62], [0.72, 0.9], [0.7, 1.12]];
-  const neckPts = [];
+  const sideways = (pts, width, bevel) => { const g = prism(pts, width, bevel); g.rotateY(-Math.PI / 2); return new THREE.Mesh(g, facet); };
+  const ARM_RISE = 0.75;
+  // The arm: up and out, then straight up, then a short step back in under the jaw.
+  const spine = [[0, 0], [0.5, 0.36], [0.56, 0.62], [0.5, ARM_RISE]];
+  const armPts = [];
   for (const side of [1, -1]) {
     const pts = spine.map(([u, v], i) => {
       const [u0, v0] = spine[Math.max(0, i - 1)], [u1, v1] = spine[Math.min(spine.length - 1, i + 1)];
       const l = Math.hypot(u1 - u0, v1 - v0);
-      return [u - (v1 - v0) / l * 0.1 * side, v + (u1 - u0) / l * 0.1 * side];
+      return [u - (v1 - v0) / l * 0.16 * side, v + (u1 - u0) / l * 0.16 * side];
     });
-    neckPts.push(...(side > 0 ? pts : pts.reverse()));
+    armPts.push(...(side > 0 ? pts : pts.reverse()));
   }
   const clamps = [];
   for (let k = 0; k < 4; k++) {
     const pivot = new THREE.Group();
-    pivot.rotation.y = k * Math.PI / 2;
-    const hinge = new THREE.Group();
-    hinge.position.set(0, 0.87, 1.25);
-    hinge.add(sideways(neckPts, 0.34));
-    const jaw = sideways([[-0.55, 0], [0.55, 0], [0.7, 0.12], [0.62, 0.3], [0.78, 0.66], [0.5, 0.34], [-0.45, 0.34], [-0.62, 0.17]], 0.62, 0.04);
-    jaw.position.set(0, 1.08, 0.28);
-    hinge.add(jaw);
-    pivot.add(hinge);
+    pivot.rotation.y = Math.PI / 4 + k * Math.PI / 2;
+    const base = new THREE.Group();
+    base.position.set(0, WELL, 1.15);
+    base.add(sideways(armPts, 0.4, 0.04));
+    // The jaw hinges on a tangential axis at the arm's head.
+    const jaw = new THREE.Group();
+    jaw.position.set(0, ARM_RISE, 0.5);
+    // Block: wider at the top, its trapezoid face turned round the pedestal (x).
+    const block = new THREE.Mesh(prism([[-0.25, 0], [0.25, 0], [0.38, 0.2], [-0.38, 0.2]], 0.56, 0.02), facet);
+    jaw.add(block);
+    // Flanges: two thin plates crossing on top (a cross seen from above), each longer than the
+    // block, with one end turned up in a horn.
+    for (const turn of [0, -Math.PI / 2]) {
+      const flange = new THREE.Mesh(prism([[-0.8, 0], [0.7, 0], [0.94, 0.22], [0.85, 0.27], [0.63, 0.07], [-0.8, 0.07]], 0.4, 0.015), facet);
+      flange.rotation.y = turn;
+      flange.position.y = 0.19 + (turn ? 0.004 : 0);
+      jaw.add(flange);
+    }
+    base.add(jaw);
+    pivot.add(base);
     scene.add(pivot);
-    clamps.push(hinge);
+    clamps.push({ group: base, jaw });
   }
   // In the hangar the video's gunship is matte, with a squarer nose and a dull windscreen
   // catching the ridge lights.
   const heli = makeHeli({ color: 0x4a4640, skin: '#8a847a', roughness: 0.82, metalness: 0.2, square: 1.4,
-    glass: { color: new THREE.Color(0x34322c), roughness: 0.35, metalness: 0.6, envMapIntensity: 0.9 } });
+    glass: { color: new THREE.Color(0x2c2a26), roughness: 0.72, metalness: 0.3, envMapIntensity: 0.3 } });
   heli.scale.setScalar(1.3);
   scene.add(heli);
   // The loose missile for P (and the one that falls in O, which is the heli's own).
   const shot = makeMissile();
-  shot.traverse((o) => { if (o.material?.color?.getHex() === 0xcfc6a8) { o.material = o.material.clone(); o.material.color.setHex(0xb4b4b0); } });
   shot.visible = false;
   scene.add(shot);
   const motor = new THREE.PointLight(0xffb060, 0, 10, 1.4);
@@ -1981,17 +2345,47 @@ function hangarSet() {
   key.position.set(0, HW + AH - 1, 4);
   key.target.position.set(0, 3, 0);
   scene.add(key, key.target);
-  return { scene, ridgeLights, uplights, beacons, amber, clamps, pedestal: [ped, capTop], heli, shot, motor, key, ambient };
+  return { scene, ridgeLights, uplights, beacons, amber, clamps, clampLight, pedestal: [ped, tier3, wellFloor], heli, shot, motor, key, ambient };
 }
 
 // S: the dusk run.
+/** Overcast dusk: dark, ragged cloud banks with paler gaps, stretched wide. */
+const duskCloudTex = (() => {
+  const t = canvasTexture(512, 256, (g, w, h) => {
+    const r = seeded(2468);
+    for (let i = 0; i < 260; i++) {
+      const x = r() * w, y = r() * h, sx = 30 + r() * 90, sy = 6 + r() * 16;
+      const dark = r() < 0.6;
+      // Thinner toward the horizon (the bottom of the canvas), where the haze takes over.
+      const a = (dark ? 0.4 : 0.22) * (1 - 0.7 * y / h);
+      for (const dx of [-w, 0, w]) {
+        g.save(); g.translate(x + dx, y); g.scale(1, sy / sx);
+        const grd = g.createRadialGradient(0, 0, 0, 0, 0, sx);
+        grd.addColorStop(0, dark ? `rgba(22,24,30,${a})` : `rgba(170,166,150,${a})`); grd.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = grd; g.fillRect(-sx, -sx, 2 * sx, 2 * sx); g.restore();
+      }
+    }
+    // Fade the dome's lower edge out, so it doesn't leave a hard line above the horizon.
+    g.globalCompositeOperation = 'destination-in';
+    const fade = g.createLinearGradient(0, 0, 0, h);
+    fade.addColorStop(0, 'rgba(0,0,0,1)'); fade.addColorStop(0.6, 'rgba(0,0,0,1)'); fade.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = fade; g.fillRect(0, 0, w, h);
+  });
+  t.wrapS = THREE.RepeatWrapping; t.repeat.set(3, 1);
+  return t;
+})();
+
 function duskSet() {
   const scene = new THREE.Scene();
   const haze = new THREE.Color(0x5e5d4e);
   scene.background = haze;
-  scene.fog = new THREE.FogExp2(0x55554a, 0.0028);
-  scene.add(new THREE.HemisphereLight(0x9aa2b4, 0x26301e, 1.2));
-  const sun = new THREE.DirectionalLight(0xffe2b0, 1.4);
+  // Denser haze, the same colour as the sky's horizon band, so land and sky melt together
+  // instead of meeting at a hard line.
+  // A touch brighter than the sky's horizon colour: fully fogged land renders a little darker, and
+  // this makes the two meet without a line.
+  scene.fog = new THREE.FogExp2(0x828e6e, 0.0019);
+  scene.add(new THREE.HemisphereLight(0x9aa2b4, 0x1c2c16, 1.2));
+  const sun = new THREE.DirectionalLight(0xffe8c4, 1.2);
   sun.position.set(-20, 30, -100);
   scene.add(sun);
   const front = new THREE.DirectionalLight(0x9aa4b8, 0.8);
@@ -1999,20 +2393,20 @@ function duskSet() {
   scene.add(front);
   const skyTex = canvasTexture(8, 256, (g, w, h) => {
     const grd = g.createLinearGradient(0, 0, 0, h);
-    grd.addColorStop(0, '#20242e'); grd.addColorStop(0.35, '#2e333c'); grd.addColorStop(0.47, '#5a5a50');
-    grd.addColorStop(0.5, '#8a8668'); grd.addColorStop(0.53, '#4a4c40'); grd.addColorStop(1, '#1c2018');
+    grd.addColorStop(0, '#1e222c'); grd.addColorStop(0.3, '#2c313a'); grd.addColorStop(0.4, '#4a4c46');
+    grd.addColorStop(0.45, '#62645a'); grd.addColorStop(0.48, '#727460'); grd.addColorStop(0.5, '#727c60'); grd.addColorStop(1, '#727c60');
     g.fillStyle = grd; g.fillRect(0, 0, w, h);
   });
   const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 24), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false }));
   sky.renderOrder = -2;
   scene.add(sky);
   const cloud = new THREE.Mesh(new THREE.SphereGeometry(880, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2 - 0.03),
-    new THREE.MeshBasicMaterial({ map: repeatOf(cloudTex, 4, 1), color: 0x9a96a0, side: THREE.BackSide, fog: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.6 }));
+    new THREE.MeshBasicMaterial({ map: duskCloudTex, side: THREE.BackSide, fog: false, transparent: true, depthWrite: false }));
   cloud.renderOrder = -1;
   scene.add(cloud);
   const landTex = canvasTexture(256, 256, (g, w, h) => {
     const r = seeded(17);
-    g.fillStyle = '#1c2418'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#26381e'; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 900; i++) {
       const x = r() * w, y = r() * h, rad = 4 + r() * 22;
       const grd = g.createRadialGradient(x, y, 0, x, y, rad);
@@ -2020,8 +2414,10 @@ function duskSet() {
       grd.addColorStop(0, k < 0.5 ? 'rgba(10,14,8,0.5)' : 'rgba(60,70,50,0.35)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = grd; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
     }
-  }, { repeat: [40, 40] });
-  const land = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ map: landTex, color: 0xd0d8c0, roughness: 1 }));
+  }, { repeat: [200, 200] });
+  // Dark green country, as in the video. Big enough to reach past the camera's far plane, so
+  // its edge never shows as a line under the haze.
+  const land = new THREE.Mesh(new THREE.PlaneGeometry(20000, 20000), new THREE.MeshStandardMaterial({ map: landTex, color: 0xffffff, roughness: 1, envMapIntensity: 0.2 }));
   land.rotation.x = -Math.PI / 2;
   scene.add(land);
   const heli = makeHeli({ color: 0x9aa0a8, skin: '#b0b6be', roughness: 0.5, metalness: 0.3 });
@@ -2037,7 +2433,7 @@ function duskSet() {
     const puffs = [];
     for (let k = 0; k < 130; k++) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, transparent: true, depthWrite: false, opacity: 0 }));
-      s.userData = { jx: (r() - 0.5) * 0.5, jy: (r() - 0.5) * 0.5, sz: 0.45 + r() * 0.35 };
+      s.userData = { jx: (r() - 0.5) * 0.3, jy: (r() - 0.5) * 0.3, sz: 0.65 + r() * 0.3 };
       scene.add(s);
       puffs.push(s);
     }
@@ -2089,18 +2485,22 @@ function logoSet() {
     chrome.addColorStop(0.45, '#dfe7f4'); chrome.addColorStop(0.62, '#58667e'); chrome.addColorStop(0.8, '#e8eef8'); chrome.addColorStop(1, '#6a7890');
     pass(36, chrome);
     pass(24, '#2a3448');
+    // Chrome faces: pale sky above a dark horizon line, warm ochre ground below it.
     const fill = g.createLinearGradient(0, 0, 0, 120);
-    fill.addColorStop(0, '#d4def6'); fill.addColorStop(0.5, '#a6b6e2'); fill.addColorStop(1, '#c2cdee');
+    fill.addColorStop(0, '#eef4ff'); fill.addColorStop(0.3, '#a8c4ec'); fill.addColorStop(0.47, '#6a8cc4');
+    fill.addColorStop(0.5, '#1c2230'); fill.addColorStop(0.54, '#7a7266'); fill.addColorStop(0.78, '#cdc6b4'); fill.addColorStop(1, '#eeece6');
     pass(21, fill);
-    pass(3, 'rgba(255,255,255,0.35)', -1.5, -1.5);
+    pass(3.5, 'rgba(20,26,40,0.75)');
+    pass(3, 'rgba(255,255,255,0.45)', -1.5, -1.5);
     g.restore();
     // The "3-D" gunsight at the foot of the V.
-    const cx = 930, cy = 262;
-    g.strokeStyle = '#a8b4c6'; g.lineWidth = 4;
-    g.beginPath(); g.arc(cx, cy, 30, 0, Math.PI * 2); g.stroke();
-    g.lineWidth = 2.5;
-    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) { g.beginPath(); g.moveTo(cx + dx * 22, cy + dy * 22); g.lineTo(cx + dx * 52, cy + dy * 52); g.stroke(); }
-    g.font = '700 24px "Arial", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    // Larger, as in the video, overlapping the foot of the V.
+    const cx = 912, cy = 250;
+    g.strokeStyle = '#a8b4c6'; g.lineWidth = 5;
+    g.beginPath(); g.arc(cx, cy, 40, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 3;
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) { g.beginPath(); g.moveTo(cx + dx * 30, cy + dy * 30); g.lineTo(cx + dx * 66, cy + dy * 66); g.stroke(); }
+    g.font = '700 32px "Arial", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#d8e2ee'; g.fillText('3-D', cx, cy + 1);
   });
   const logo = new THREE.Mesh(new THREE.PlaneGeometry(10.24, 3.2), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
@@ -2150,10 +2550,12 @@ const TUBE_OFF = new Set([34, 37, 55, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75
 // Hangar clock: lights, lift, rotor.
 const LEFT_ON = B(46), RIGHT_ON = B(64), BEACONS_ON = B(283);
 const ROTOR = [[B(214), 0], [B(274), 3.2], [B(300), 14], [B(345), 30]];
-// The gunship stays clamped to its pedestal while the rotor runs up to speed; the clamps
-// fold away (CLAMPS_OPEN) and only then does it lift off and climb to its hover.
+// The gunship stays clamped to its pedestal while the rotor runs up to speed; the clamp jaws
+// let go (CLAMPS_OPEN) and only then does it lift off and climb to its hover.
 const CLAMPS_OPEN = [B(380), B(392)];
-const heliLift = (t) => 2.95 + keyed(t, [[B(393), 0], [B(400), 0.12], [B(410), 0.55], [B(422), 1.1], [B(450), 2.0], [B(480), 3.2], [B(520), 3.6]])
+// It sits with its belly on the clamp jaws, and creeps up only a little while the clamp shot
+// (M) lasts: the climb proper happens across the cut to N.
+const heliLift = (t) => 3.17 + keyed(t, [[B(393), 0], [B(405), 0.08], [B(415), 0.2], [B(422), 0.32], [B(432), 1.7], [B(460), 2.9], [B(520), 3.4]])
   + 0.06 * Math.sin(t * 2.3) * span(t, B(400), B(420));
 // Dusk clock, seconds from the first frame of S.
 const S0 = B(661);
@@ -2237,7 +2639,7 @@ export function createIntro(renderer) {
     sign.lamp.intensity = on ? 4.5 : 0;
     sign.spill.intensity = on ? 0.5 : 0;
     // Fitted to the sign's corners in INTRO1 frame 20: the camera stands off to its right.
-    look([0.7, 1.45, 2.3], [0.4, 1.6, 0], 44);
+    look([0.74, 1.45, 2.55], [0.42, 1.6, 0], 44);
     cam.updateMatrixWorld();
     placeMoon(sign.moon, cam, -0.4, -0.4);
     sign.sky.position.copy(cam.position);
@@ -2260,8 +2662,9 @@ export function createIntro(renderer) {
   function shotHigh(t) {
     const T = t - A(158);
     const X = SET.high;
-    path(cam, T, [[0, [X + 10, 17, 27], [X - 2, 3.2, -5], 46], [4.0, [X + 9.5, 16.8, 26.4], [X - 2.3, 3.3, -5], 46]], false);
-    base.frontLight.intensity = 1.6;
+    // High and looking steeply down, the wall running diagonally across the top of frame.
+    path(cam, T, [[0, [X + 13, 25, 21], [X - 3, 1.5, -5], 46], [4.0, [X + 12.5, 24.7, 20.5], [X - 3.3, 1.6, -5], 46]], false);
+    base.frontLight.intensity = 1.1;
     base.pool.intensity = 0;
     base.poolSpot.material.opacity = 0;
     return { scene: night(t) };
@@ -2275,7 +2678,7 @@ export function createIntro(renderer) {
     path(cam, T, [[0, [X, 3, 6], [X, 7.3, -40], 50], [7.6, [X + 2.8, 3, 6], [X + 6.8, 7.3, -40], 50]], false);
     const tw = base.moonTower.userData;
     const lit = t >= A(244) ? 1 : 0;
-    tw.beam.material.opacity = lit * 0.3;
+    tw.setBeam(lit * 0.3);
     tw.glow.material.color.setScalar(lit ? 1 : 0.12);
     tw.spot.intensity = lit * 4000;
     // The searchlight snaps on aimed down to the left, sweeps across to the right, then swings
@@ -2290,7 +2693,7 @@ export function createIntro(renderer) {
     const facing = fwd.dot(toCam);
     tw.flare.material.opacity = lit * smooth((facing - 0.95) / 0.045);
     // Seen end-on the beam is just the glare, not a solid wedge across the frame.
-    tw.beam.material.opacity = lit * 0.3 * (1 - 0.85 * smooth((facing - 0.9) / 0.08));
+    tw.setBeam(lit * 0.3 * (1 - 0.85 * smooth((facing - 0.9) / 0.08)));
     base.pool.intensity = 0;
     base.poolSpot.material.opacity = 0;
     const scene = night(t);
@@ -2303,13 +2706,15 @@ export function createIntro(renderer) {
 
   /** Shared state of the night base for this frame. */
   function night(t) {
+    base.moon.visible = true;
     base.hemi.intensity = 0.9;
     base.moonLight.intensity = 1.3;
     cam.updateMatrixWorld();
     base.sky.position.copy(cam.position);
     placeMoon(base.moon, cam, t < A(207) ? 0.2 : 0.29, t < A(207) ? -0.3 : 0.2);
+    base.moon.userData.halo.position.x = 0.15 - 0.012 * t;
     const tw = base.moonTower.userData;
-    if (t < A(207)) { tw.beam.material.opacity = 0; tw.spot.intensity = 0; }
+    if (t < A(207)) { tw.setBeam(0); tw.spot.intensity = 0; }
     return base.scene;
   }
 
@@ -2319,33 +2724,51 @@ export function createIntro(renderer) {
     // The hall opens nearly black: the ridge panels glow but throw little light. Each bank of
     // wall uplights that comes on brings the room (and the gunship) up with it.
     const lvl = (t >= LEFT_ON ? 0.5 : 0) + (t >= RIGHT_ON ? 0.5 : 0);
-    h.key.intensity = lerp(0.8, 34, lvl);
-    h.ambient.intensity = lerp(0.04, 0.25, lvl);
+    h.key.intensity = lerp(3, 34, lvl);
+    h.ambient.intensity = lerp(0.1, 0.25, lvl);
     // Reflections too: the environment map's bright wall strips are the uplights.
     h.scene.environmentIntensity = lerp(0.1, 0.7, lvl);
     h.pedestal.forEach((m) => { m.visible = true; });
-    h.clamps.forEach((c) => { c.visible = true; });
+    h.clamps.forEach((c) => { c.group.visible = true; });
+    h.clampLight.intensity = 0;
     h.ridgeLights.forEach((l) => { l.intensity = lerp(1.5, 16, lvl); });
     for (const [s, at] of [[-1, LEFT_ON], [1, RIGHT_ON]]) {
       const on = t >= at ? 1 : 0;
       h.uplights[s].wash.opacity = on;
-      h.uplights[s].lamp.color.setScalar(on ? 1 : 0.06);
       h.uplights[s].fill.forEach((l) => { l.intensity = on * 10; });
     }
     const bOn = t >= BEACONS_ON ? 1 : 0;
-    h.beacons.forEach((b, k) => {
-      const a = b.a + Math.PI / 2 + (t - BEACONS_ON) * 4.2 + k * 0.7;
-      b.head.rotation.set(-0.5, a, 0, 'YXZ');
-      b.beam.material.opacity = bOn * 0.4;
-      b.halo.material.opacity = bOn * 0.9;
-      b.lens.material.color.setHex(bOn ? 0xffd070 : 0x2a1a08);
+    const dir = V(), hit = V();
+    h.beacons.forEach((b) => {
+      // Spinning clockwise as the camera sees it, a little over a turn every five seconds.
+      b.spin.rotation.z = -(t - BEACONS_ON) * 1.25 - b.phase;
+      b.mount.updateMatrixWorld(true);
+      b.on = bOn;
+      b.pool.material.opacity = 0;
+      b.beams.forEach((beam) => {
+        beam.material.uniforms.opacity.value = bOn * 0.9;
+        dir.set(0, 1, 0).applyQuaternion(beam.getWorldQuaternion(new THREE.Quaternion()));
+        // Where the lower shaft meets the floor: a pool, longer the flatter the shaft.
+        if (dir.y < -0.05) {
+          const d = Math.min(2.6, b.lens.position.y / -dir.y);
+          hit.copy(b.lens.position).addScaledVector(dir, d).setY(0.02);
+          b.pool.position.copy(hit);
+          b.pool.rotation.z = -Math.atan2(dir.z, dir.x);
+          b.pool.scale.set(0.7 + d * 0.9, 0.7, 1);
+          b.pool.material.opacity = bOn * (0.6 + 0.4 * smooth(-dir.y)) * (1 - d / 3.4) * 1.4;
+        }
+      });
+      b.lens.material.color.setHex(bOn ? 0xffe8a0 : 0x2a1a08);
     });
+    // Real light along the upper shafts of the two beacons in front of the pad, so the wall and
+    // the gunship catch them.
     h.amber.forEach((l, i) => {
       const b = h.beacons[i ? 1 : 2];
-      l.intensity = bOn * 60;
-      l.position.copy(b.head.position);
-      const d = V(0, 0, 1).applyEuler(b.head.rotation);
-      l.target.position.copy(b.head.position).addScaledVector(d, 6);
+      l.intensity = bOn * 30;
+      l.position.copy(b.lens.position);
+      const up = b.beams.map((beam) => V(0, 1, 0).applyQuaternion(beam.getWorldQuaternion(new THREE.Quaternion())))
+        .reduce((x, y) => (y.y > x.y ? y : x));
+      l.target.position.copy(b.lens.position).addScaledVector(up, 6);
       l.target.updateMatrixWorld();
     });
     const y = heliLift(t);
@@ -2354,11 +2777,30 @@ export function createIntro(renderer) {
     const speed = keyed(t, ROTOR);
     setRotor(h.heli, spun(t, ROTOR), speed);
     const fold = smooth(span(t, ...CLAMPS_OPEN));
-    h.clamps.forEach((c) => { c.rotation.x = fold * 1.25; });
+    // The jaws grip tilted to the belly's curve and let go by tilting level.
+    h.clamps.forEach((c) => { c.jaw.rotation.x = -0.3 * (1 - fold); });
     h.heli.userData.missiles.forEach((m) => { m.position.copy(m.userData.home); m.rotation.set(0, 0, 0); m.visible = true; m.userData.flame.material.opacity = 0; });
+    h.heli.userData.wings.forEach((w) => { w.visible = true; });
     h.shot.visible = false;
     h.motor.intensity = 0;
     return h.scene;
+  }
+
+  /** The beacons' lens flares swell as a shaft swings toward the camera (once it is placed). */
+  function beaconFlares() {
+    cam.updateMatrixWorld();
+    const dir = V(), to = V(), q = new THREE.Quaternion();
+    hall.beacons.forEach((b) => {
+      let facing = 0;
+      to.copy(cam.position).sub(b.lens.position).normalize();
+      b.beams.forEach((beam) => { facing = Math.max(facing, dir.set(0, 1, 0).applyQuaternion(beam.getWorldQuaternion(q)).dot(to)); });
+      const f = smooth((facing - 0.6) / 0.4);
+      b.core.material.opacity = b.on;
+      b.glow.material.opacity = b.on * (0.45 + 0.55 * f);
+      b.glow.scale.setScalar(1.9 + 1.8 * f);
+      b.streak.material.opacity = b.on * (0.45 + 0.4 * f);
+      if (b.light) b.light.intensity = b.on * (2.5 + 2.5 * f);
+    });
   }
 
   function shotHall(t) {
@@ -2384,8 +2826,10 @@ export function createIntro(renderer) {
     const h = hall.heli;
     h.updateMatrixWorld();
     const p = (x, y, z) => V(x, y, z).applyMatrix4(h.matrixWorld);
-    cam.position.copy(p(0.75, 2.0, -2.3));
-    cam.lookAt(p(-0.4, 1.2, 1.2));
+    // Solved to the video's frame: the hub high in the middle, the cowl's back filling the
+    // lower left.
+    cam.position.copy(p(-0.47, 2.41, -3.63));
+    cam.lookAt(p(0, 0.26, 2.55));
     cam.fov = 50;
     hall.ridgeLights.forEach((l) => { l.intensity = 5; });
     return { scene };
@@ -2393,27 +2837,33 @@ export function createIntro(renderer) {
 
   function shotLift(t) {
     const scene = hallState(t);
-    path(cam, t - B(275), [[0, [4.2, 0.55, 9.6], [-0.8, 2.3, 0], 50], [3.6, [4.2, 0.6, 9.5], [-0.8, 2.7, 0], 50]], false);
+    // Low by the pad's rim, a beacon to the right of frame and another at the left edge.
+    path(cam, t - B(275), [[0, [3.96, 0.7, 10.57], [-1.54, 1.65, 0], 50], [3.6, [3.96, 0.74, 10.5], [-1.54, 2.0, 0], 50]], false);
     return { scene };
   }
 
   function shotUnder(t) {
     const scene = hallState(t);
-    hall.beacons.forEach((b) => { b.beam.material.opacity = 0; });
+    hall.beacons.forEach((b) => { b.beams.forEach((beam) => { beam.material.uniforms.opacity.value = 0; }); });
     // The pad and its pedestal stay out of this one, as in the video: just the gunship's
     // silhouette against the far wall.
     hall.key.intensity = 2;
     hall.ridgeLights.forEach((l) => { l.intensity = 5; });
     hall.pedestal.forEach((m) => { m.visible = false; });
-    hall.clamps.forEach((c) => { c.visible = false; });
-    path(cam, t - B(326), [[0, [-9.2, 4.4, -2.2], [9.5, 5.4, -2.8], 50], [3.2, [-9.2, 4.4, -2.7], [9.5, 5.4, -3.3], 50]], false);
+    hall.clamps.forEach((c) => { c.group.visible = false; });
+    // Low under the tail boom, looking across at the right wall: the wall fills the frame, its
+    // uplights along the bottom, the cabin's belly a dark slope cutting in from the right.
+    path(cam, t - B(326), [[0, [-1.2, 2.9, -2.8], [9.5, 3.2, -1.0], 36], [3.2, [-1.2, 2.9, -3.2], [9.5, 3.2, -1.4], 36]], false);
     return { scene };
   }
 
   function shotClamps(t) {
     const scene = hallState(t);
     hall.ridgeLights.forEach((l) => { l.intensity = 3; });
-    path(cam, t - B(371), [[0, [2.6, 1.85, 2.6], [0.6, 2.05, -1.2], 55], [3.6, [2.56, 1.85, 2.56], [0.6, 2.05, -1.2], 55]], false);
+    // Low at the pedestal's rim, as in the video: the cushion fills the bottom left, one clamp
+    // stands to its right and another beyond it, and the belly hangs over them all.
+    path(cam, t - B(371), [[0, [0.78, 1.62, -2.56], [-1.16, 1.76, -0.28], 55], [3.6, [0.82, 1.62, -2.6], [-1.16, 1.76, -0.28], 55]], false);
+    hall.clampLight.intensity = 6;
     return { scene };
   }
 
@@ -2421,7 +2871,7 @@ export function createIntro(renderer) {
     const scene = hallState(t);
     // Kept inside the hall (its walls stand at x = ±9.5) so the lens never passes through them.
     path(cam, t - B(422), [
-      [0, [8.0, 1.6, 6.5], [0, 4.6, 0], 52], [2.6, [6.8, 2.6, 2.5], [-0.5, 5.8, -0.5], 52],
+      [0, [6.6, 4.6, 6.6], [-0.5, 3.3, -0.5], 52], [2.6, [6.8, 2.6, 2.5], [-0.5, 5.8, -0.5], 52],
       [4.0, [7.6, 3.8, -4], [0, 6.4, 0], 52], [6.0, [7.8, 3.6, -14], [0, 6.2, 0], 52],
     ], true);
     return { scene };
@@ -2435,16 +2885,26 @@ export function createIntro(renderer) {
     const drop = span(t, B(529), B(546));
     const T = Math.max(0, t - B(548));
     m.position.copy(m.userData.home).add(V(0, -0.08 * drop * drop, -0.45 * drop + 30 * T * T));
-    m.userData.flame.material.opacity = t >= B(546) ? 0.6 + 0.4 * Math.sin(t * 70) : 0;
-    m.userData.flame.scale.setScalar(t >= B(546) ? 0.6 + 0.6 * span(t, B(546), B(551)) : 0.1);
+    // A small, white-hot jet with hardly any glow round it, as in the video.
+    m.userData.flame.material.opacity = t >= B(546) ? 0.85 + 0.15 * Math.sin(t * 70) : 0;
+    m.userData.flame.material.color.setHex(0xfff4d8);
+    m.userData.flame.scale.set(0.22, t >= B(546) ? 0.3 + 0.25 * span(t, B(546), B(551)) : 0.1, 1);
     const p = (x, y, z) => V(x, y, z).applyMatrix4(h.matrixWorld);
-    cam.position.copy(p(1.75, -1.75, -1.05));
+    // Close below the outer pair, so the missiles fill the frame as in the video. The video
+    // shows them against the roof, so the wing (and its tip light) is left out of this shot.
+    h.userData.wings.forEach((w) => { w.visible = false; });
+    // Neutral light here: the warm wall fills and reflections turned the cream missiles gold.
+    hall.uplights[-1].fill.forEach((l) => { l.intensity = 1.5; });
+    hall.uplights[1].fill.forEach((l) => { l.intensity = 1.5; });
+    scene.environmentIntensity = 0.25;
+    hall.ambient.intensity = 1.4;
+    cam.position.copy(p(1.75, -1.45, -0.95));
     cam.up.copy(V(0, 0, 1).transformDirection(h.matrixWorld));
-    cam.lookAt(p(1.78, 0.2, 0.25));
-    cam.fov = 52;
+    cam.lookAt(p(1.75, 0.2, 0.3));
+    cam.fov = 44;
     const mp = V().setFromMatrixPosition(m.matrixWorld);
     hall.motor.position.copy(mp);
-    hall.motor.intensity = t >= B(546) ? 12 : 0;
+    hall.motor.intensity = t >= B(546) ? 2.5 : 0;
     return { scene };
   }
 
@@ -2464,7 +2924,9 @@ export function createIntro(renderer) {
     hall.amber.forEach((l) => { l.intensity = 0; });
     hall.ridgeLights.forEach((l) => { l.intensity = 4; });
     const wob = Math.sin(T * 6) * 0.25;
-    look([-0.5, 4.55, s.position.z + 0.38 + wob], [-12, 4.4, s.position.z + 0.38 + wob], 32);
+    // Close alongside, as in the video: the nose a quarter in from the left, the body running
+    // off the right of frame.
+    look([-2.0, 4.6, s.position.z + 0.46 + wob], [-12, 4.55, s.position.z + 0.46 + wob], 32);
     return { scene };
   }
 
@@ -2475,20 +2937,27 @@ export function createIntro(renderer) {
     base.frontLight.intensity = 1.0;
     cam.updateMatrixWorld();
     base.sky.position.copy(cam.position);
-    placeMoon(base.moon, cam, 0.79, 0.06);
+    // No moon here: only the tower's lamp is lit in the video.
+    base.moon.visible = false;
     const hg = base.hangar.userData;
     const blown = t >= B(597);
     hg.door.visible = !blown;
     hg.front.visible = !blown;
+    // The blast strips the skin off: the fire burns inside the bare ribs. The front of the frame
+    // goes too, leaving the gunship a clear way out.
+    hg.shell.visible = !blown;
+    hg.ribs.forEach((rib) => { rib.visible = !blown || rib.position.z < 0; });
     const F = t - B(596);
     // White core with rays, swelling then collapsing into the fire.
     const flash = F < 0 ? 0 : F < 0.2 ? F / 0.2 : Math.max(0, 1 - (F - 0.7) / 0.6);
-    base.core.material.opacity = flash;
-    base.core.scale.setScalar(lerp(8, 30, smooth(F / 0.3)) * (F > 0.7 ? lerp(1, 0.6, span(F, 0.7, 1.3)) : 1));
+    base.core.material.opacity = flash * 0.5;
+    base.bloom.material.opacity = flash * 0.6;
+    base.core.scale.setScalar(lerp(6, 20, smooth(F / 0.3)) * (F > 0.7 ? lerp(1, 0.6, span(F, 0.7, 1.3)) : 1));
     base.outLight.position.set(O, 5, -18);
     const fireLevel = smooth(span(t, B(608), B(622))) * lerp(1, 0.75, span(t, B(622), B(660)));
-    base.outLight.color.setRGB(lerp(1, 1, fireLevel), lerp(1, 0.55, fireLevel), lerp(1, 0.25, fireLevel));
-    base.outLight.intensity = flash * 50 + fireLevel * (70 + 15 * Math.sin(t * 31) + 10 * Math.sin(t * 13));
+    // Blue-white in the flash, orange once the fire takes hold.
+    base.outLight.color.setRGB(lerp(0.72, 1, fireLevel), lerp(0.88, 0.55, fireLevel), lerp(1, 0.25, fireLevel));
+    base.outLight.intensity = flash * 16 + fireLevel * (70 + 15 * Math.sin(t * 31) + 10 * Math.sin(t * 13));
     base.hemi.intensity = 0.9 + flash * 0.5;
     for (const f of base.fire) {
       const u = f.userData;
@@ -2505,9 +2974,17 @@ export function createIntro(renderer) {
       s.material.opacity = F > 1 ? Math.sin(age * Math.PI) * 0.55 * fireLevel : 0;
       s.scale.setScalar(u.size * (0.7 + age));
     }
+    {
+      // The big sheet: out of the fire, over the ground toward the lens, tumbling.
+      const T = t - B(604);
+      base.slab.visible = T > 0 && T < 2.2;
+      base.slab.position.set(O + 0.5 + 1.2 * T, Math.max(0.1, 0.8 + 2.6 * T - 2.2 * T * T), -18 + 12 * T);
+      base.slab.rotation.set(1.3 * T, 0.4 + 0.6 * T, 2.1 * T);
+    }
     base.debris.forEach((d) => {
       const T = t - B(598);
-      d.visible = T > 0;
+      // Hidden in the glare at first; they show once the flash dies down.
+      d.visible = T > 0.35;
       if (T <= 0) return;
       const u = d.userData;
       d.position.set(u.p.x + u.v.x * T, Math.max(0.05, u.p.y + u.v.y * T - 11 * T * T), u.p.z + u.v.z * T);
@@ -2517,9 +2994,12 @@ export function createIntro(renderer) {
     const H = base.heli;
     const k = span(t, B(626), B(660));
     H.visible = t >= B(626);
-    const p = track(k, [[0, O - 1, 4.5, -30], [0.35, O + 3, 5.5, -19], [0.65, O + 8, 7.0, -11], [1, O + 16, 10, -4]]);
+    // Straight out along the hangar's axis until the rotor is clear of the frame, then away to
+    // the right.
+    const p = track(k, [[0, O, 4.0, -26], [0.3, O + 0.5, 4.8, -17], [0.6, O + 5.5, 6.6, -13], [1, O + 17, 10, -9]]);
     H.position.copy(p);
-    H.rotation.set(0.15, lerp(0.6, 1.25, k), lerp(0, -0.35, k));
+    // Nose down and banked as it bursts out, as in the video, turning only once it is clear.
+    H.rotation.set(lerp(0.38, 0.18, k), lerp(0.25, 1.45, smooth(span(k, 0.2, 0.7))), lerp(-0.5, -0.3, k));
     setRotor(H, t * 30, 30);
     return { scene: base.scene, black: span(t, B(650), B(659)) };
   }
@@ -2583,10 +3063,11 @@ export function createIntro(renderer) {
         p.position.set(q.x + p.userData.jx * (1 + age), q.y + p.userData.jy * (1 + age) + age * 0.3, q.z);
         // Motor-fire yellow for an instant, then red-orange smoke cooling to grey-white.
         if (age < 0.2) p.material.color.setRGB(1, lerp(0.85, 0.2, age / 0.2), lerp(0.55, 0.06, age / 0.2));
-        else if (age < 0.9) p.material.color.setRGB(0.95, 0.2, 0.06);
-        else { const c = smooth((age - 0.9) / 2.0); p.material.color.setRGB(lerp(0.95, 0.84, c), lerp(0.2, 0.8, c), lerp(0.06, 0.82, c)); }
-        p.material.opacity = clamp01(1 - age / 3.2);
-        p.scale.setScalar(p.userData.sz * (1 + age * 0.6));
+        // Thin, wispy, pinkish red, as in the video.
+        else if (age < 0.9) p.material.color.setRGB(0.88, 0.36, 0.34);
+        else { const c = smooth((age - 0.9) / 2.0); p.material.color.setRGB(lerp(0.88, 0.8, c), lerp(0.36, 0.62, c), lerp(0.34, 0.62, c)); }
+        p.material.opacity = 0.35 * clamp01(1 - age / 2.4);
+        p.scale.setScalar(p.userData.sz * (1 + age * 0.4));
       });
     }
     return { scene: dusk.scene, black: 1 - span(t, B(658), B(668)) };
@@ -2594,7 +3075,8 @@ export function createIntro(renderer) {
 
   function shotLogo(t) {
     logo.scene.background.setScalar(keyed(t, [[B(860), 1], [B(861), 0.45], [B(863), 0.2], [B(866), 0.05], [B(871), 0]]));
-    look([0, 0.15, 11.6], [0, 0.15, 0], 40);
+    // Smaller and a little above centre, as the video frames it.
+    look([0.6, -0.55, 13.8], [0.6, -0.55, 0], 40);
     return { scene: logo.scene, white: 1 - span(t, B(860), B(861.5)), black: span(t, B(937), B(946)) };
   }
 
@@ -2622,6 +3104,7 @@ export function createIntro(renderer) {
   function draw(shot, t) {
     cam.up.set(0, 1, 0);
     const r = shot[2](t);
+    if (r.scene === hall.scene) beaconFlares();
     cam.aspect = size.x / size.y;
     cam.updateProjectionMatrix();
     renderer.toneMapping = r.toneMapping ?? toneMapping;
