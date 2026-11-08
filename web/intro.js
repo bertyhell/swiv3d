@@ -534,6 +534,32 @@ const puffTex = canvasTexture(64, 64, (g) => {
 });
 
 /** The blast's white core with radiating streaks. */
+/**
+ * God rays: soft shafts of light fanning out from a centre, of uneven width and length, blurred
+ * so they read as light through haze rather than drawn lines.
+ */
+const godRayTex = canvasTexture(512, 512, (g, w, h) => {
+  const r = seeded(6161);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  x.translate(w / 2, h / 2);
+  for (let i = 0; i < 90; i++) {
+    const a = r() * Math.PI * 2, spread = 0.01 + r() * 0.05, len = w * (0.25 + r() * 0.25);
+    const grd = x.createRadialGradient(0, 0, 0, 0, 0, len);
+    const k = 0.12 + r() * 0.3;
+    grd.addColorStop(0, `rgba(255,255,255,${k})`); grd.addColorStop(0.35, `rgba(255,255,255,${k * 0.6})`); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = grd;
+    x.beginPath(); x.moveTo(0, 0); x.arc(0, 0, len, a - spread, a + spread); x.closePath(); x.fill();
+  }
+  g.filter = 'blur(5px)';
+  g.drawImage(c, 0, 0);
+  g.filter = 'none';
+  const core = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.2);
+  core.addColorStop(0, 'rgba(255,255,255,0.9)'); core.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = core; g.fillRect(0, 0, w, h);
+});
+
 const raysTex = canvasTexture(256, 256, (g) => {
   const r = seeded(11);
   g.translate(128, 128);
@@ -1027,6 +1053,13 @@ function makeMissile() {
   const finRing = new THREE.Mesh(new THREE.TorusGeometry(0.122, 0.005, 6, 28), finMat);
   finRing.position.z = -0.665;
   g.add(finRing);
+  // The motor's jet: a bright cylinder of light out of the nozzle, as in the video.
+  const jetGeo = new THREE.CylinderGeometry(0.05, 0.062, 0.9, 16, 6, true).translate(0, 0.45, 0);
+  const jet = new THREE.Mesh(jetGeo, volumeBeam(0xffd27a, { len: 0.9, rim: 0.5, fall: 0.9, hot: 1.0 }));
+  jet.rotation.x = -Math.PI / 2;
+  jet.position.z = -0.75;
+  g.add(jet);
+  g.userData.jet = jet;
   // Motor flame and glow, hidden until it fires.
   const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
   flame.position.z = -0.95;
@@ -1995,7 +2028,22 @@ function baseSet() {
   // A Nissen hut on the left, its end toward the camera, and the tanker in the foreground.
   at(makeHangar(16, 4.2, { lamp: false, skin: 0x9a9ea8, trapezoid: true }), O - 12, 0, -14, 0.05);
   at(makeWall(160), O, 0, -60);
-  at(makeTruck('tanker'), O - 5.6, 0, 1.2, -2.2);
+  // The tanker from its rear quarter, heading away to the right.
+  const outTruck = at(makeTruck('tanker'), O - 6.2, 0, -4.5, 2.45);
+  // Moonlight from behind the tower, the one light here that casts shadows: the tower's lattice,
+  // the hut, the shed and the tanker throw long shadows toward the camera.
+  const outMoon = new THREE.DirectionalLight(0xb8c2e6, 0);
+  outMoon.position.set(O + 16, 34, -78);
+  outMoon.target.position.set(O + 4, 0, -8);
+  outMoon.castShadow = true;
+  outMoon.visible = false;
+  outMoon.shadow.mapSize.set(2048, 2048);
+  Object.assign(outMoon.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 10, far: 160 });
+  outMoon.shadow.bias = -0.0008;
+  scene.add(outMoon, outMoon.target);
+  for (const o of [outTower, shed, outTruck, hangar]) o.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+  scene.children.filter((o) => o.isGroup && Math.abs(o.position.x - (O - 12)) < 0.01).forEach((o) => o.traverse((m) => { if (m.isMesh) m.castShadow = true; }));
+  ground.receiveShadow = true;
   const outLight = new THREE.PointLight(0xc8ccff, 0, 70, 1.5);
   scene.add(outLight);
   // Fireball, smoke, the white core and the debris.
@@ -2022,6 +2070,13 @@ function baseSet() {
   bloom.position.set(O, 5, -19);
   bloom.scale.setScalar(70);
   scene.add(bloom);
+  // God rays round the flash, and shafts of light out of the fire once it takes hold.
+  const rays = new THREE.Sprite(new THREE.SpriteMaterial({ map: godRayTex, color: 0xbcd8ff, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, opacity: 0, fog: false }));
+  rays.position.set(O, 5, -19);
+  scene.add(rays);
+  const fireRays = new THREE.Sprite(new THREE.SpriteMaterial({ map: godRayTex, color: 0xffa040, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, opacity: 0, fog: false }));
+  fireRays.position.set(O, 4.2, -20);
+  scene.add(fireRays);
   // One big sheet of hangar skin that tumbles toward the camera.
   const slab = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.06, 3.4), new THREE.MeshStandardMaterial({ color: 0x5a5c62, map: corrugated, roughness: 0.6, metalness: 0.4, side: THREE.DoubleSide }));
   slab.visible = false;
@@ -2038,7 +2093,7 @@ function baseSet() {
   heli.scale.setScalar(1.3);
   heli.visible = false;
   scene.add(heli);
-  return { scene, sky, moon, hemi, moonLight, frontLight, poolSpot, apronJets, apronTanker, pool, bunker, highWall, moonTower, moonTanker, block, hangar, outTower, shed, outLight, fire, smoke, core, bloom, slab, debris, heli };
+  return { scene, sky, moon, hemi, moonLight, frontLight, poolSpot, apronJets, apronTanker, pool, bunker, highWall, moonTower, moonTanker, block, hangar, outTower, shed, outLight, outMoon, fire, smoke, core, bloom, rays, fireRays, slab, debris, heli };
 }
 
 // E-P: inside the hangar.
@@ -2124,6 +2179,16 @@ function hangarSet() {
     const p = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 2.6), new THREE.MeshBasicMaterial({ color: 0xf8faff }));
     p.position.set(0, HW + AH - 0.36, -L + 2.5 + k * 4.9);
     scene.add(p);
+    // The haze of light round each panel, as in the video.
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 5.6), additive(pondTex, 0xdfe6ff, 0.8));
+    glow.rotation.x = Math.PI / 2;
+    glow.position.set(0, HW + AH - 0.4, p.position.z);
+    scene.add(glow);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: pondTex, color: 0xcfd8f0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.35, fog: false }));
+    halo.position.set(0, HW + AH - 0.6, p.position.z);
+    halo.scale.set(5.2, 3.2, 1);
+    halo.material.opacity = 0.5;
+    scene.add(halo);
   }
   const ridgeLights = [-12, 0, 12].map((z) => {
     const l = new THREE.PointLight(0xeef2ff, 16, 30, 1.2);
@@ -2272,9 +2337,10 @@ function hangarSet() {
   // A lamp in the gap under the belly for the clamp shot, which is lit from there in the video:
   // a sheen across the cushion and bright bevels on the clamps.
   const clampLight = new THREE.PointLight(0xfff2dc, 0, 5, 1.5);
-  clampLight.position.set(0.3, 2.35, -1.7);
+  clampLight.position.set(0.3, 3.2, -1.7);
   scene.add(clampLight);
-  const pedProfile = [[0.85, 0], [0.7, 0.1], [0.62, 0.28], [0.7, 0.42], [0.95, 0.5], [1.12, 0.56], [1.17, 0.64], [1.12, 0.71], [0.9, 0.74], [0.5, 0.75], [0.001, 0.755]];
+  // The gunship stands high on its clamps, as in the video, so the column is tall.
+  const pedProfile = [[0.85, 0], [0.7, 0.1], [0.62, 0.28], [0.66, 1.0], [0.7, 1.27], [0.95, 1.35], [1.12, 1.41], [1.17, 1.49], [1.12, 1.56], [0.9, 1.59], [0.5, 1.6], [0.001, 1.605]];
   const ped = new THREE.Mesh(new THREE.LatheGeometry(pedProfile.map(([r, y]) => new THREE.Vector2(r, WELL + y)), 48), bronze);
   scene.add(ped);
   // Clamps, as in the video: a fixed J-shaped arm of straight, bevelled segments rising from
@@ -2291,9 +2357,9 @@ function hangarSet() {
     return geo;
   };
   const sideways = (pts, width, bevel) => { const g = prism(pts, width, bevel); g.rotateY(-Math.PI / 2); return new THREE.Mesh(g, facet); };
-  const ARM_RISE = 0.75;
+  const ARM_RISE = 1.6;
   // The arm: up and out, then straight up, then a short step back in under the jaw.
-  const spine = [[0, 0], [0.5, 0.36], [0.56, 0.62], [0.5, ARM_RISE]];
+  const spine = [[0, 0], [0.5, 0.36], [0.56, 1.47], [0.5, ARM_RISE]];
   const armPts = [];
   for (const side of [1, -1]) {
     const pts = spine.map(([u, v], i) => {
@@ -2332,7 +2398,8 @@ function hangarSet() {
   // In the hangar the video's gunship is matte, with a squarer nose and a dull windscreen
   // catching the ridge lights.
   const heli = makeHeli({ color: 0x4a4640, skin: '#8a847a', roughness: 0.82, metalness: 0.2, square: 1.4,
-    glass: { color: new THREE.Color(0x2c2a26), roughness: 0.72, metalness: 0.3, envMapIntensity: 0.3 } });
+    // Clear glass: dark, with the hall's ceiling lights and walls mirrored in it.
+    glass: { color: new THREE.Color(0x4a4c52), roughness: 0.06, metalness: 0.95, envMapIntensity: 1.6 } });
   heli.scale.setScalar(1.3);
   scene.add(heli);
   // The loose missile for P (and the one that falls in O, which is the heli's own).
@@ -2555,7 +2622,7 @@ const ROTOR = [[B(214), 0], [B(274), 3.2], [B(300), 14], [B(345), 30]];
 const CLAMPS_OPEN = [B(380), B(392)];
 // It sits with its belly on the clamp jaws, and creeps up only a little while the clamp shot
 // (M) lasts: the climb proper happens across the cut to N.
-const heliLift = (t) => 3.17 + keyed(t, [[B(393), 0], [B(405), 0.08], [B(415), 0.2], [B(422), 0.32], [B(432), 1.7], [B(460), 2.9], [B(520), 3.4]])
+const heliLift = (t) => 4.02 + keyed(t, [[B(393), 0], [B(405), 0.08], [B(415), 0.2], [B(422), 0.32], [B(432), 1.7], [B(460), 2.9], [B(520), 3.4]])
   + 0.06 * Math.sin(t * 2.3) * span(t, B(400), B(420));
 // Dusk clock, seconds from the first frame of S.
 const S0 = B(661);
@@ -2576,6 +2643,9 @@ const FIRE_AT = B(822) - S0;
 export function createIntro(renderer) {
   const cam = new THREE.PerspectiveCamera(50, 4 / 3, 0.05, 2400);
   const toneMapping = renderer.toneMapping;
+  // Shadows: only the outside shot's moonlight casts them.
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const sign = signSet();
   const base = baseSet();
   const hall = hangarSet();
@@ -2707,6 +2777,8 @@ export function createIntro(renderer) {
   /** Shared state of the night base for this frame. */
   function night(t) {
     base.moon.visible = true;
+    base.moon.userData.halo.visible = true;
+    base.outMoon.visible = false;
     base.hemi.intensity = 0.9;
     base.moonLight.intensity = 1.3;
     cam.updateMatrixWorld();
@@ -2779,7 +2851,7 @@ export function createIntro(renderer) {
     const fold = smooth(span(t, ...CLAMPS_OPEN));
     // The jaws grip tilted to the belly's curve and let go by tilting level.
     h.clamps.forEach((c) => { c.jaw.rotation.x = -0.3 * (1 - fold); });
-    h.heli.userData.missiles.forEach((m) => { m.position.copy(m.userData.home); m.rotation.set(0, 0, 0); m.visible = true; m.userData.flame.material.opacity = 0; });
+    h.heli.userData.missiles.forEach((m) => { m.position.copy(m.userData.home); m.rotation.set(0, 0, 0); m.visible = true; m.userData.flame.material.opacity = 0; m.userData.jet.material.uniforms.opacity.value = 0; });
     h.heli.userData.wings.forEach((w) => { w.visible = true; });
     h.shot.visible = false;
     h.motor.intensity = 0;
@@ -2862,7 +2934,7 @@ export function createIntro(renderer) {
     hall.ridgeLights.forEach((l) => { l.intensity = 3; });
     // Low at the pedestal's rim, as in the video: the cushion fills the bottom left, one clamp
     // stands to its right and another beyond it, and the belly hangs over them all.
-    path(cam, t - B(371), [[0, [0.78, 1.62, -2.56], [-1.16, 1.76, -0.28], 55], [3.6, [0.82, 1.62, -2.6], [-1.16, 1.76, -0.28], 55]], false);
+    path(cam, t - B(371), [[0, [0.78, 2.47, -2.56], [-1.16, 2.61, -0.28], 55], [3.6, [0.82, 2.47, -2.6], [-1.16, 2.61, -0.28], 55]], false);
     hall.clampLight.intensity = 6;
     return { scene };
   }
@@ -2871,7 +2943,7 @@ export function createIntro(renderer) {
     const scene = hallState(t);
     // Kept inside the hall (its walls stand at x = ±9.5) so the lens never passes through them.
     path(cam, t - B(422), [
-      [0, [6.6, 4.6, 6.6], [-0.5, 3.3, -0.5], 52], [2.6, [6.8, 2.6, 2.5], [-0.5, 5.8, -0.5], 52],
+      [0, [6.6, 5.4, 6.6], [-0.5, 4.1, -0.5], 52], [2.6, [6.8, 2.6, 2.5], [-0.5, 5.8, -0.5], 52],
       [4.0, [7.6, 3.8, -4], [0, 6.4, 0], 52], [6.0, [7.8, 3.6, -14], [0, 6.2, 0], 52],
     ], true);
     return { scene };
@@ -2889,6 +2961,8 @@ export function createIntro(renderer) {
     m.userData.flame.material.opacity = t >= B(546) ? 0.85 + 0.15 * Math.sin(t * 70) : 0;
     m.userData.flame.material.color.setHex(0xfff4d8);
     m.userData.flame.scale.set(0.22, t >= B(546) ? 0.3 + 0.25 * span(t, B(546), B(551)) : 0.1, 1);
+    m.userData.jet.material.uniforms.opacity.value = t >= B(546) ? 2.2 + 0.4 * Math.sin(t * 90) : 0;
+    m.userData.jet.scale.set(1, t >= B(546) ? 0.6 + 0.6 * span(t, B(546), B(549)) : 1, 1);
     const p = (x, y, z) => V(x, y, z).applyMatrix4(h.matrixWorld);
     // Close below the outer pair, so the missiles fill the frame as in the video. The video
     // shows them against the roof, so the wing (and its tip light) is left out of this shot.
@@ -2917,6 +2991,7 @@ export function createIntro(renderer) {
     s.position.set(-4, 4.6, -6 + T * 26);
     s.rotation.set(0, 0, T * 2);
     s.userData.flame.material.opacity = 0;
+    s.userData.jet.material.uniforms.opacity.value = 0;
     hall.motor.intensity = 0;
     hall.uplights[-1].wash.opacity = 0.18;
     hall.uplights[1].wash.opacity = 0;
@@ -2934,11 +3009,18 @@ export function createIntro(renderer) {
   function shotOutside(t) {
     const O = SET.out;
     look([O - 1.2, 2.0, 7], [O + 1.5, 6.4, -30], 50);
-    base.frontLight.intensity = 1.0;
+    base.frontLight.intensity = 0.45;
     cam.updateMatrixWorld();
     base.sky.position.copy(cam.position);
-    // No moon here: only the tower's lamp is lit in the video.
-    base.moon.visible = false;
+    // The moon stands just behind the tower's cabin, as in the video, and its light throws the
+    // tower's shadow toward the camera. The tower's own lamp is dark.
+    base.moon.visible = true;
+    const hp = base.outTower.userData.head.getWorldPosition(V()).project(cam);
+    placeMoon(base.moon, cam, (hp.x + 1) / 2 - 0.006, (1 - hp.y) / 2 - 0.006);
+    base.moon.userData.halo.visible = false;
+    base.outTower.userData.glow.material.color.setScalar(0.08);
+    base.outMoon.visible = true;
+    base.outMoon.intensity = 1.8;
     const hg = base.hangar.userData;
     const blown = t >= B(597);
     hg.door.visible = !blown;
@@ -2952,6 +3034,9 @@ export function createIntro(renderer) {
     const flash = F < 0 ? 0 : F < 0.2 ? F / 0.2 : Math.max(0, 1 - (F - 0.7) / 0.6);
     base.core.material.opacity = flash * 0.5;
     base.bloom.material.opacity = flash * 0.6;
+    base.rays.material.opacity = flash;
+    base.rays.material.rotation = F * 0.15;
+    base.rays.scale.setScalar(lerp(14, 46, smooth(F / 0.35)));
     base.core.scale.setScalar(lerp(6, 20, smooth(F / 0.3)) * (F > 0.7 ? lerp(1, 0.6, span(F, 0.7, 1.3)) : 1));
     base.outLight.position.set(O, 5, -18);
     const fireLevel = smooth(span(t, B(608), B(622))) * lerp(1, 0.75, span(t, B(622), B(660)));
@@ -2959,6 +3044,10 @@ export function createIntro(renderer) {
     base.outLight.color.setRGB(lerp(0.72, 1, fireLevel), lerp(0.88, 0.55, fireLevel), lerp(1, 0.25, fireLevel));
     base.outLight.intensity = flash * 16 + fireLevel * (70 + 15 * Math.sin(t * 31) + 10 * Math.sin(t * 13));
     base.hemi.intensity = 0.9 + flash * 0.5;
+    // Light shafts out of the fire, flickering with it.
+    base.fireRays.material.opacity = fireLevel * (0.85 + 0.15 * Math.sin(t * 23) + 0.1 * Math.sin(t * 9));
+    base.fireRays.material.rotation = t * 0.05;
+    base.fireRays.scale.setScalar(36 + 3 * Math.sin(t * 7));
     for (const f of base.fire) {
       const u = f.userData;
       const age = ((F + u.phase) % u.life) / u.life;
@@ -3021,9 +3110,11 @@ export function createIntro(renderer) {
     setRotor(H, t * 26, 30);
     // Camera: hangs in the air looking at the horizon, tilting up as the gunship comes round.
     const pitch = keyed(T, [[0, -0.11], [3, -0.08], [8, -0.035], [12.5, -0.035], [13.3, 0.04]]);
-    cam.position.set(0, 40, 0);
+    // A little off to the gunship's right, so its right flank shows beside the windscreen as
+    // in the video.
+    cam.position.set(-1.8, 40, 0);
     cam.up.set(0, 1, 0);
-    cam.lookAt(0, 40 + Math.tan(pitch) * 100, -100);
+    cam.lookAt(-1.8, 40 + Math.tan(pitch) * 100, -100);
     cam.fov = 46;
     dusk.sky.position.copy(cam.position);
     dusk.cloud.position.copy(cam.position);
@@ -3048,6 +3139,7 @@ export function createIntro(renderer) {
         ms.m.lookAt(along(u + 0.05));
         ms.m.userData.flame.material.opacity = 1;
         ms.m.userData.flame.scale.setScalar(1.4);
+        ms.m.userData.jet.material.uniforms.opacity.value = 2.4;
       }
       ms.flash.position.copy(start);
       ms.flash.material.opacity = F > 0 && F < 0.25 ? 1 - F / 0.25 : 0;
