@@ -3,6 +3,7 @@
 import init, { Game, global_strings, sound_offsets } from './pkg/swiv_web.js';
 import { playIntro } from './intro.js';
 import { createFrontEnd, runBriefing, store, save, pilot } from './frontend.js';
+import { K, PAD_ACTIONS, keyAction } from './controls.js';
 import { paintGlobe } from './globe.js';
 
 const LEVEL_ORDER = [
@@ -24,16 +25,6 @@ const PICKUP_FALLBACK = { 0: 'Missiles', 100: '10% Health', 101: '25% Health', 1
 const OBJECTIVE_NAMES = ['PRIMARY TARGETS', 'SECONDARY TARGETS', 'COMMAND CENTRE', 'DEFENCE GRID', 'SUPPLY DEPOTS',
   'OUTPOSTS', 'COMMS', 'FUEL DUMPS', 'BASE', 'FINAL TARGET'];
 
-// Key bits (must match crates/swiv-web/src/lib.rs `keys`).
-const K = { LEFT: 1, RIGHT: 2, FORWARD: 4, BACK: 8, SL: 16, SR: 32, SMOD: 64, FIRE: 128, SPECIAL: 256, NEXT: 512, PREV: 1024 };
-const KEYMAP = {
-  ArrowLeft: K.LEFT, ArrowRight: K.RIGHT, ArrowUp: K.FORWARD, ArrowDown: K.BACK,
-  KeyW: K.FORWARD, KeyS: K.BACK, KeyA: K.SL, KeyD: K.SR, KeyZ: K.SL, KeyX: K.SR,
-  ShiftLeft: K.SMOD, ShiftRight: K.SMOD, AltLeft: K.SMOD,
-  Space: K.FIRE, ControlLeft: K.FIRE, ControlRight: K.FIRE,
-  Enter: K.SPECIAL, KeyE: K.NEXT, Tab: K.NEXT, KeyQ: K.PREV,
-};
-
 // Sound effect ids (SOUNDS.BD directory id / 100) per sim event code.
 // 11 = tractor beam grabs a pickup: its winch sound runs exactly as long as the lift.
 // The primary gun (1) is not a sound per shot: recorded from the original in DOSBox, holding
@@ -44,6 +35,8 @@ const GUN_CLICK = 2005;          // the rattle's click: its first 0.12 s
 const GUN_CLICK_MS = 140;
 // Level used as the menus' backdrop (the original flies over a level behind its menus).
 const MENU_LEVELS = ['TERRAN01', 'TERRAN00', 'TERRAN02'];
+// How far the terrain is drawn, in map cells (the furthest the old Detail Level allowed).
+const VIEW_CELLS = 70;
 // Each level's name is GLOBAL.BD string 200/n, n in the original's campaign order.
 const LEVEL_NAME_INDEX = {
   TERRAN00: 0, TERRAN01: 1, TERRAN02: 2, TERRAN03: 3, TERRAN04: 4, TERRAN05: 5, TERRAN06: 6, TERRANBS: 7,
@@ -61,7 +54,7 @@ const state = {
   audio: null,
   sounds: new Map(),
   engine: null,
-  music: { el: new Audio(), tracks: [], index: 0 },
+  music: { el: new Audio(), tracks: [], index: 0, pref: null },
   lastHud: 0,
   banner: null,
   carry: null,
@@ -205,7 +198,9 @@ async function runIntro() {
   state.mode = 'intro';
   playMusic(-1);
   $('frontend').hidden = true;
-  await playIntro({ ctx: state.audio, sounds: state.sounds, master: state.master, soundtrack: await introSoundtrack() });
+  // The videos' soundtrack is music, so Music Volume scales it; the fallback's effects follow Sound Volume.
+  const soundtrack = await introSoundtrack();
+  await playIntro({ ctx: state.audio, sounds: state.sounds, master: soundtrack ? state.musicBus : state.sfxBus, soundtrack });
 }
 
 // The intro videos' own soundtrack (swiv-pack --anims writes it), decoded once on first use.
@@ -222,11 +217,10 @@ async function enterFrontEnd() {
   state.running = false;
   stopEngine();
   $('hud').hidden = true;
-  $('pause').hidden = true;
   const backdrop = MENU_LEVELS.find((l) => state.levels.includes(l)) ?? state.levels[0];
   await loadLevel(backdrop);
   state.game.set_attract(true);
-  state.game.set_view_distance(viewCells());
+  state.game.set_view_distance(VIEW_CELLS);
   state.mode = 'menu';
   state.running = true;
   state.paused = false;
@@ -234,18 +228,23 @@ async function enterFrontEnd() {
   state.frontEnd.open();
 }
 
-function viewCells() {
-  return 34 + store.settings.detail * 3.6; // 34..70 cells; the default (6) is the old 56
-}
-
 function applySettings() {
   const s = store.settings;
   if (state.sfxBus) state.sfxBus.gain.value = s.sfx / 10;
-  state.music.el.volume = Math.min(1, s.music / 10);
-  if (state.game) state.game.set_view_distance(viewCells());
-  if (state.mode === 'menu') {
-    const want = state.music.tracks.length ? s.track : -1;
-    if (want !== state.music.index || (want >= 0 && state.music.el.paused)) playMusic(want);
+  if (state.musicBus) state.musicBus.gain.value = s.music / 10;
+  const el = state.music.el;
+  el.volume = Math.min(1, s.music / 10);
+  if (state.mode !== 'menu' && state.mode !== 'game') return;
+  const n = state.music.tracks.length;
+  if (s.track !== state.music.pref) {
+    // Music Preference changed (in Setup or the pause menu): switch to that track.
+    state.music.pref = s.track;
+    playMusic(n ? s.track : -1);
+  } else if (s.music === 0) {
+    el.pause();
+  } else if (el.paused && state.music.index >= 0) {
+    // Turned back up from 0: carry on with the track that was playing.
+    playMusic(state.music.index);
   }
 }
 
@@ -262,7 +261,7 @@ async function startGame(name) {
   state.hudStart = null;
   await loadLevel(name);
   state.game.set_attract(false);
-  state.game.set_view_distance(viewCells());
+  state.game.set_view_distance(VIEW_CELLS);
   drawMinimapBase();
   await briefing(name);
   beginPlay(name);
@@ -321,6 +320,10 @@ async function setupAudio() {
   const sfx = ctx.createGain();
   sfx.connect(master);
   state.sfxBus = sfx;
+  // Music decoded into Web Audio (the intro soundtrack); the CD tracks use the <audio> element's volume.
+  const music = ctx.createGain();
+  music.connect(master);
+  state.musicBus = music;
   if (state.assets) {
     // Files are named `<effect id>-<description>.wav`; the game refers to them by id.
     await Promise.all(state.assets.sounds.map(async (file) => {
@@ -451,6 +454,7 @@ function playMusic(index) {
   if (state.mode === 'intro' || state.mode === 'briefing') index = -1;
   const t = state.music.tracks[index];
   state.music.index = index;
+  state.music.pref = store.settings.track;
   if (!t || store.settings.music === 0) {
     el.pause();
     return;
@@ -484,6 +488,7 @@ function beginPlay(name) {
   state.paused = false;
   state.banner = null;
   state.keys = 0;
+  state.padMute = true;
   drawMinimapBase();
   $('hud').hidden = false;
   showBanner(levelName(name), 2500);
@@ -500,7 +505,7 @@ async function nextMission(name) {
   $('hud').hidden = true;
   await loadLevel(name);
   state.game.set_attract(false);
-  state.game.set_view_distance(viewCells());
+  state.game.set_view_distance(VIEW_CELLS);
   drawMinimapBase();
   await briefing(name);
   beginPlay(name);
@@ -523,9 +528,18 @@ function toMenu() {
 function setPaused(p) {
   state.paused = p;
   state.keys = 0;
-  $('pause').hidden = !p;
-  if (p) $('resume').focus();
+  state.padMute = true; // ignore the button that resumed until it is let go
+  if (p) state.frontEnd.openPause();
+  else state.frontEnd.hide();
   if (state.engine) state.engine.g.gain.value = p ? 0 : 0.35;
+}
+
+function restartLevel() {
+  state.game.restart_level();
+  if (state.carry) state.game.carry_over(...state.carry);
+  state.hudStart = null;
+  showBanner(levelName(LEVEL_ORDER[state.levelIndex]), 2000);
+  setPaused(false);
 }
 
 function handleEvents(events) {
@@ -632,24 +646,80 @@ function drawMinimap() {
 
 // ---------------------------------------------------------------- input
 
-function gamepadBits() {
-  let bits = 0;
+// The pressed buttons and stick positions of every connected pad, merged.
+function readPads() {
+  const buttons = new Set();
+  const axes = [0, 0, 0, 0];
   for (const p of navigator.getGamepads?.() ?? []) {
     if (!p) continue;
-    const [lx, ly, rx] = p.axes;
-    if (lx < -0.35) bits |= K.LEFT;
-    if (lx > 0.35) bits |= K.RIGHT;
-    if (ly < -0.35) bits |= K.FORWARD;
-    if (ly > 0.35) bits |= K.BACK;
-    if (rx < -0.35) bits |= K.SL;
-    if (rx > 0.35) bits |= K.SR;
-    const b = (i) => p.buttons[i]?.pressed;
-    if (b(0) || b(7)) bits |= K.FIRE;
-    if (b(1)) bits |= K.SPECIAL;
-    if (b(5)) bits |= K.NEXT;
-    if (b(4)) bits |= K.PREV;
+    p.buttons.forEach((b, i) => { if (b.pressed) buttons.add(i); });
+    p.axes.slice(0, 4).forEach((v, i) => { if (Math.abs(v) > Math.abs(axes[i])) axes[i] = v; });
+  }
+  return { buttons, axes };
+}
+
+function gamepadBits(pad) {
+  const s = store.settings;
+  if (state.padMute) {
+    if (pad.buttons.size) return 0;
+    state.padMute = false;
+  }
+  const dz = s.deadZone / 100;
+  const [mx, my, sx] = s.swapSticks ? [pad.axes[2], pad.axes[3], pad.axes[0]] : [pad.axes[0], pad.axes[1], pad.axes[2]];
+  let bits = 0;
+  if (mx < -dz) bits |= K.LEFT;
+  if (mx > dz) bits |= K.RIGHT;
+  if (my < -dz) bits |= K.FORWARD;
+  if (my > dz) bits |= K.BACK;
+  if (sx < -dz) bits |= K.SL;
+  if (sx > dz) bits |= K.SR;
+  for (const a of PAD_ACTIONS) {
+    if (a.bit && s.pad[a.id]?.some((b) => pad.buttons.has(b))) bits |= a.bit;
   }
   return bits;
+}
+
+// Per-frame gamepad handling outside the flight controls: menu navigation (with key-repeat on a
+// held direction), rebinding, pause and map buttons, and skipping the intro and briefings.
+const padNav = { prev: new Set(), dir: null, next: 0 };
+function pollPad(now) {
+  const pad = readPads();
+  const pressed = [...pad.buttons].filter((b) => !padNav.prev.has(b));
+  padNav.prev = pad.buttons;
+  const s = store.settings;
+  const bound = (id, list = pressed) => s.pad[id]?.some((b) => list.includes(b));
+  const fe = state.frontEnd;
+  if (!fe) return pad;
+  if (fe.capturing === 'pad') {
+    if (pressed.length) fe.padPressed(pressed[0]);
+    return pad;
+  }
+  if (fe.visible) {
+    if (state.paused && bound('pause')) { setPaused(false); return pad; }
+    const [lx, ly] = pad.axes;
+    const has = (b) => pad.buttons.has(b);
+    const dir = has(12) || ly < -0.5 ? 'up' : has(13) || ly > 0.5 ? 'down'
+      : has(14) || lx < -0.5 ? 'left' : has(15) || lx > 0.5 ? 'right' : null;
+    if (dir !== padNav.dir) { padNav.dir = dir; padNav.next = now + 380; if (dir) fe.onPad(dir); }
+    else if (dir && now >= padNav.next) { padNav.next = now + 110; fe.onPad(dir); }
+    if (pressed.includes(0)) fe.onPad('ok');
+    else if (pressed.includes(1)) fe.onPad('back');
+    return pad;
+  }
+  padNav.dir = null;
+  if (state.mode === 'game' && state.running) {
+    if (bound('pause')) setPaused(true);
+    else if (bound('map')) toggleMap();
+  } else if ((state.mode === 'briefing' || state.mode === 'intro') && (pressed.includes(0) || pressed.includes(9))) {
+    // The intro and briefings skip on any key; hand them an Enter.
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+  }
+  return pad;
+}
+
+function toggleMap() {
+  state.showMap = !state.showMap;
+  $('minimap').hidden = !state.showMap;
 }
 
 addEventListener('keydown', (e) => {
@@ -658,33 +728,31 @@ addEventListener('keydown', (e) => {
     return;
   }
   if (state.mode !== 'game' || !state.running) return;
-  if (e.code === 'Escape' || e.code === 'KeyP') { setPaused(!state.paused); e.preventDefault(); return; }
+  const action = keyAction(store.settings, e.code);
   if (state.paused) {
-    const opts = [$('resume'), $('quit')];
-    const at = opts.indexOf(document.activeElement);
-    if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
-      opts[(Math.max(0, at) + (e.code === 'ArrowUp' ? -1 : 1) + opts.length) % opts.length].focus();
-      e.preventDefault();
-    } else if (e.code === 'Enter' || e.code === 'Space') {
-      (opts[at] ?? opts[0]).click();
-      e.preventDefault();
-    }
+    // P (or whatever Pause is bound to) resumes too, unless a new key is being picked.
+    if (!state.frontEnd.capturing && action?.id === 'pause' && e.code !== 'Escape') setPaused(false);
+    else state.frontEnd.onKey(e);
+    e.preventDefault();
     return;
   }
-  if (e.code === 'KeyM') { state.showMap = !state.showMap; $('minimap').hidden = !state.showMap; return; }
-  if (e.code === 'KeyN') {
+  // Esc always pauses, whatever else is bound.
+  if (e.code === 'Escape' || action?.id === 'pause') { setPaused(true); e.preventDefault(); return; }
+  if (!action) return;
+  e.preventDefault();
+  if (action.bit) { state.keys |= action.bit; return; }
+  if (e.repeat) return;
+  if (action.id === 'map') toggleMap();
+  else if (action.id === 'music') {
     const n = state.music.tracks.length;
     if (n) playMusic((state.music.index + 1) % n);
-    return;
   }
-  const bit = KEYMAP[e.code];
-  if (bit) { state.keys |= bit; e.preventDefault(); }
 });
 addEventListener('keyup', (e) => {
-  const bit = KEYMAP[e.code];
+  const bit = keyAction(store.settings, e.code)?.bit;
   if (bit) state.keys &= ~bit;
 });
-addEventListener('blur', () => { state.keys = 0; if (state.mode === 'game' && state.running) setPaused(true); });
+addEventListener('blur', () => { state.keys = 0; if (state.mode === 'game' && state.running && !state.paused) setPaused(true); });
 
 // ---------------------------------------------------------------- main loop
 
@@ -692,12 +760,13 @@ let last = performance.now();
 function frame(now) {
   const dt = now - last;
   last = now;
+  const pad = pollPad(now);
   if (state.game && state.running && state.mode === 'menu') {
     state.game.update(dt, 0);
     state.game.render();
   } else if (state.game && state.running) {
     if (!state.paused) {
-      const bits = state.keys | gamepadBits();
+      const bits = state.keys | gamepadBits(pad);
       state.game.update(dt, bits);
       gunRattle(now, (bits & K.FIRE) !== 0 && state.game.hud()[9] === 0);
       const h = state.game.hud();
@@ -736,9 +805,10 @@ async function boot() {
       state.frontEnd.openMain();
     },
     click: uiClick,
+    resume: () => setPaused(false),
+    restart: restartLevel,
+    quit: () => { state.frontEnd.hide(); state.paused = false; toMenu(); },
   });
-  $('resume').addEventListener('click', () => setPaused(false));
-  $('quit').addEventListener('click', toMenu);
   const data = new URLSearchParams(location.search).get('data');
   if (!data && await loadPackedAssets()) {
     await afterFilesLoaded();

@@ -15,7 +15,7 @@
 //   F  31-56   left wall: its floor uplights clunk on
 //   G  57-73   right wall: its uplights clunk on
 //   H  74-117  head-on again, wider
-//   I 118-207  the cockpit wakes up
+//   I 118-207  the cockpit wakes up (cockpit.js, shared with the briefing)
 //   J 208-274  over the rotor head; the blades start to turn
 //   K 275-325  at the pad: amber beacons turn, the gunship lifts off its pedestal
 //   L 326-370  from below, rotor spinning against the wall
@@ -30,6 +30,7 @@
 //   T 860-957  white flash to the chrome SWIV 3D logo; fade out
 import * as THREE from './vendor/three.module.min.js';
 import { SIGN_ICONS } from './signIcons.js';
+import { cockpitScene, COCKPIT_VIEW } from './cockpit.js';
 
 /** Seconds per Smacker frame (the intro videos run at 1000/71 fps). */
 const FRAME = 0.071;
@@ -1825,124 +1826,6 @@ function hangarSet() {
   return { scene, ridgeLights, uplights, beacons, amber, clamps, pedestal: [ped, capTop], heli, shot, motor, key, ambient };
 }
 
-// I: the cockpit.
-function cockpitSet() {
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x000000);
-  scene.add(new THREE.AmbientLight(0x506070, 0.9));
-  const panelLight = new THREE.PointLight(0x9fb0c8, 9, 14, 1.2);
-  panelLight.position.set(0, 1.5, 4);
-  scene.add(panelLight);
-  const faceMat = new THREE.MeshStandardMaterial({ color: 0x46505a, map: panelTexture('#4a5058', { cols: 7, rows: 5, line: 'rgba(0,0,0,0.6)' }), roughness: 0.75, metalness: 0.3 });
-  const bezelMat = metal(0x3a3e44, 0.35, 0.7);
-  const tealMat = new THREE.MeshStandardMaterial({ color: 0x2a5a66, roughness: 0.5, metalness: 0.3, emissive: 0x0a1c22 });
-  const rr = (w, h, r, p = new THREE.Shape()) => {
-    p.moveTo(-w / 2 + r, -h / 2); p.lineTo(w / 2 - r, -h / 2); p.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
-    p.lineTo(w / 2, h / 2 - r); p.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2); p.lineTo(-w / 2 + r, h / 2);
-    p.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r); p.lineTo(-w / 2, -h / 2 + r); p.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
-    return p;
-  };
-  const bezel = (w, h, r) => {
-    const sh = rr(w + 0.36, h + 0.36, r + 0.1);
-    sh.holes.push(rr(w, h, r, new THREE.Path()));
-    return new THREE.ExtrudeGeometry(sh, { depth: 0.16, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 2 });
-  };
-  // Screen pages, drawn once each.
-  const page = (kind) => canvasTexture(256, 256, (g, w, h) => {
-    const r = seeded(kind.length * 31);
-    g.fillStyle = '#020604'; g.fillRect(0, 0, w, h);
-    if (kind === 'map') {
-      g.fillStyle = '#4a5644'; g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 14000; i++) { const v = 50 + r() * 170; g.fillStyle = `rgba(${v * 0.85},${v},${v * 0.8},${0.3 + r() * 0.5})`; g.fillRect(r() * w, r() * h, 2, 2); }
-      g.strokeStyle = 'rgba(20,30,20,0.6)'; g.lineWidth = 2;
-      for (let k = 0; k <= 8; k++) { g.beginPath(); g.moveTo(k * 32, 0); g.lineTo(k * 32, h); g.moveTo(0, k * 32); g.lineTo(w, k * 32); g.stroke(); }
-    } else if (kind === 'radar') {
-      g.fillStyle = '#04141a'; g.fillRect(0, 0, w, h);
-      g.strokeStyle = '#4ae0ff'; g.lineWidth = 2;
-      for (let k = 0; k < 14; k++) { g.beginPath(); let x = r() * w, y = r() * h; g.moveTo(x, y); for (let j = 0; j < 4; j++) { x += (r() - 0.5) * 120; y += (r() - 0.5) * 120; g.lineTo(x, y); } g.stroke(); }
-    } else if (kind === 'green') {
-      g.fillStyle = '#5ee87a'; g.fillRect(0, 0, w, h);
-      g.fillStyle = 'rgba(0,60,10,0.25)'; for (let y = 0; y < h; y += 6) g.fillRect(0, y, w, 2);
-    } else if (kind === 'dim') {
-      g.fillStyle = '#0a160c'; g.fillRect(0, 0, w, h);
-    }
-  });
-  const items = [];
-  const screen = (x, y, z, w, h, kind, ry = 0, rx = 0, onAt = 0) => {
-    const grp = new THREE.Group();
-    grp.position.set(x, y, z); grp.rotation.set(rx, ry, 0);
-    const fr = new THREE.Mesh(bezel(w, h, Math.min(w, h) * 0.18), bezelMat);
-    fr.position.z = -0.08;
-    grp.add(fr);
-    const sc = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: page(kind), color: 0x000000 }));
-    sc.position.z = 0.0;
-    grp.add(sc);
-    const gl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.05, metalness: 1, transparent: true, opacity: 0.4 }));
-    gl.position.z = 0.02;
-    grp.add(gl);
-    scene.add(grp);
-    items.push({ kind: 'screen', m: sc.material, onAt, level: kind === 'dim' ? 0.35 : 1 });
-    return grp;
-  };
-  // Panel faces: the main dash, the centre stack and the side consoles.
-  const dash = new THREE.Mesh(new THREE.BoxGeometry(9, 5.4, 0.3), faceMat);
-  dash.position.set(0, -0.4, -0.4);
-  scene.add(dash);
-  const stack = new THREE.Mesh(new THREE.BoxGeometry(2.7, 1.5, 0.4), faceMat);
-  stack.position.set(-0.45, 1.85, -0.2);
-  stack.rotation.x = 0.15;
-  scene.add(stack);
-  const hood = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.3, 1.1), metal(0x15171a, 0.8, 0.2));
-  hood.position.set(-0.45, 2.75, 0.1);
-  scene.add(hood);
-  // Big side displays angled in towards the seat.
-  screen(-1.9, -0.3, 0.45, 1.7, 1.4, 'map', 0.3, 0, 0.55);
-  screen(1.65, -0.15, 0.45, 1.7, 1.45, 'dim', -0.3, 0, 0.9);
-  // Centre stack: a round gauge, the radar page and a narrow green page; lamps below.
-  screen(-0.55, 1.95, 0.05, 1.05, 0.68, 'radar', 0, 0.15, 0.45);
-  screen(0.45, 1.95, 0.05, 0.3, 0.7, 'green', 0, 0.15, 0.62);
-  const g1 = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.05, 8, 24), bezelMat);
-  g1.position.set(-1.5, 2.0, 0.05);
-  scene.add(g1);
-  screen(-0.3, 0.72, 0.1, 1.0, 0.62, 'green', 0, 0, 0.3);
-  // White-noise monitors low in the middle and on either side.
-  const noisy = (x, y, w, h, onAt) => {
-    const noise = canvasTexture(64, 48, () => {});
-    const tv = screen(x, y, 0.4, w, h, 'dim', 0, -0.12, onAt);
-    tv.children[1].material.map = noise;
-    const it = items[items.length - 1];
-    it.noise = noise.image;
-    it.level = 1;
-  };
-  noisy(-0.15, -1.35, 0.55, 0.62, 0.2);
-  noisy(-2.5, -1.25, 0.28, 0.26, 0.5);
-  noisy(0.95, -1.3, 0.3, 0.26, 0.7);
-  const lampCols = [0xffcc30, 0xff3018, 0x30ff60, 0xffcc30];
-  const lamp = (x, y, w, h, col, onAt) => {
-    const l = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.06), new THREE.MeshBasicMaterial({ color: 0x0c0c0c }));
-    l.position.set(x, y, 0.06);
-    scene.add(l);
-    items.push({ kind: 'lamp', m: l.material, col: new THREE.Color(col), onAt });
-  };
-  for (let k = 0; k < 8; k++) lamp(-1.15 + k * 0.25, 1.33, 0.16, 0.09, k === 0 || k === 7 ? 0xff3018 : 0xffcc30, 0.15 + k * 0.03);
-  for (let k = 0; k < 4; k++) lamp(0.5 + (k % 2) * 0.2, 0.9 - Math.floor(k / 2) * 0.2, 0.14, 0.1, 0xff3018, 0.4 + k * 0.05);
-  const r = seeded(321);
-  // Rows of teal push-buttons and coloured status LEDs.
-  const btn = (x, y) => {
-    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.06, 12), tealMat);
-    b.rotation.x = Math.PI / 2;
-    b.position.set(x, y, 0.08);
-    scene.add(b);
-  };
-  for (let row = 0; row < 4; row++) for (let c = 0; c < 3; c++) btn(-0.95 + c * 0.22, -0.25 - row * 0.22);
-  for (let row = 0; row < 3; row++) for (let c = 0; c < 3; c++) btn(0.25 + c * 0.2, 0.15 - row * 0.22);
-  for (let row = 0; row < 6; row++) { btn(-2.75, 0.9 - row * 0.3); btn(2.75, 0.9 - row * 0.3); }
-  for (let k = 0; k < 16; k++) lamp(-0.9 + r() * 2.2, -1.0 - r() * 1.0, 0.07, 0.07, lampCols[k % 4], 0.3 + r() * 0.6);
-  for (let k = 0; k < 6; k++) lamp(-2.85 + (k % 2) * 0.16, -0.5 - Math.floor(k / 2) * 0.25, 0.09, 0.09, lampCols[(k + 1) % 4], 0.5 + r() * 0.4);
-  for (let k = 0; k < 8; k++) lamp(2.5 + (k % 2) * 0.16, -0.9 - Math.floor(k / 2) * 0.22, 0.09, 0.09, lampCols[(k + 2) % 4], 0.4 + r() * 0.5);
-  return { scene, items };
-}
-
 // S: the dusk run.
 function duskSet() {
   const scene = new THREE.Scene();
@@ -2128,10 +2011,11 @@ const FIRE_AT = B(822) - S0;
  */
 export function createIntro(renderer) {
   const cam = new THREE.PerspectiveCamera(50, 4 / 3, 0.05, 2400);
+  const toneMapping = renderer.toneMapping;
   const sign = signSet();
   const base = baseSet();
   const hall = hangarSet();
-  const pit = cockpitSet();
+  const pit = cockpitScene();
   const dusk = duskSet();
   const logo = logoSet();
 
@@ -2162,7 +2046,6 @@ export function createIntro(renderer) {
   sign.scene.environmentIntensity = base.scene.environmentIntensity = 0.5;
   hall.scene.environment = envFrom(C(0x2a2a28), C(0x14130f), C(0x0a0806), [[0, 9, 0, 2, 14, 3], [-9, -1, 0, 1, 14, 1], [9, -1, 0, 1, 14, 1]]);
   hall.scene.environmentIntensity = 0.7;
-  pit.scene.environment = hall.scene.environment;
   dusk.scene.environment = envFrom(C(0x4a5060), C(0x9a9070), C(0x22281c), [[0, 1, -9, 8, 2, 1.6]]);
   dusk.scene.environmentIntensity = 0.9;
   pmrem.dispose();
@@ -2317,26 +2200,11 @@ export function createIntro(renderer) {
 
   function shotCockpit(t) {
     const k = (t - B(118)) / (B(208) - B(118));
-    const wake = span(t, B(170), B(202));
-    for (const it of pit.items) {
-      const on = wake > it.onAt ? 1 : 0;
-      if (it.kind === 'screen') {
-        const flick = on && wake - it.onAt < 0.06 ? 0.5 : 1;
-        it.m.color.setScalar(on ? it.level * flick * 0.9 : 0.04);
-        if (it.noise && on) {
-          const g = it.noise.getContext('2d');
-          const img = g.createImageData(64, 48);
-          const r = seeded(1 + frameNo(t));
-          for (let i = 0; i < 64 * 48; i++) { const v = 90 + r() * 165; img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
-          g.putImageData(img, 0, 0);
-          it.m.map.needsUpdate = true;
-        }
-      } else {
-        it.m.color.copy(on ? it.col : C(0x0c0c0c));
-      }
-    }
-    look([lerp(0.05, -0.05, k), 0.3, 4.6], [0, 0.3, 0], 50);
-    return { scene: pit.scene };
+    pit.update(t, t - B(170), B(202) - B(170));
+    const [x, y, z] = COCKPIT_VIEW.pos;
+    look([x + lerp(0.05, -0.05, k), y, z], COCKPIT_VIEW.target, COCKPIT_VIEW.fov);
+    // Drawn untone-mapped, so it looks the same here as in the briefing.
+    return { scene: pit.scene, toneMapping: THREE.NoToneMapping };
   }
 
   function shotRotor(t) {
@@ -2583,7 +2451,9 @@ export function createIntro(renderer) {
     const r = shot[2](t);
     cam.aspect = size.x / size.y;
     cam.updateProjectionMatrix();
+    renderer.toneMapping = r.toneMapping ?? toneMapping;
     renderer.render(r.scene, cam);
+    renderer.toneMapping = toneMapping;
     return r;
   }
 

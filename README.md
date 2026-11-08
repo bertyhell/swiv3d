@@ -19,7 +19,8 @@ handles the page, menus, HUD, input and audio.
 | `web/index.html`, `web/style.css` | the page and HUD layout |
 | `web/main.js` | boot, asset loading, the frame loop, input (keyboard and gamepad), HUD, radar, map and audio |
 | `web/frontend.js` | the menus: pilots, controller, main menu, setup, credits |
-| `web/briefing.js`, `web/briefing-cockpit.js`, `web/globe.js` | the mission briefing screens |
+| `web/briefing.js`, `web/globe.js` | the mission briefing screens |
+| `web/cockpit.js`, `web/cockpit-shell.js` | the gunship cockpit, shared by the intro and the briefing: the controls, and the dashboard shapes they sit on |
 | `web/intro.js` | the opening cinematic, rendered in real time with three.js (`web/vendor/`, MIT) |
 | `web/assets/` | the game data the page loads at runtime, listed in `manifest.json` |
 | `web/pkg/` | build output: the compiled `.wasm` and its JavaScript bindings |
@@ -101,7 +102,7 @@ python3 -m http.server -d web 8080
 Open <http://localhost:8080>, or use `./run.sh` for a live-reloading server.
 
 Controls: the arrow keys turn and thrust, `W` `S` thrust, `A` `D` strafe, Space fires, Enter
-fires the special weapon, `Q` `E` select a special weapon, `M` shows the map, Esc pauses.
+fires the special weapon, `Q` `E` select a special weapon, `M` shows the map, `N` skips to the next music track, Esc pauses. All keys and gamepad buttons can be changed under Setup → Controller Setup (or Controls in the pause menu).
 Gamepads work too.
 
 ## Tests

@@ -184,42 +184,51 @@ code, kbd { font-family: var(--mono); font-size: 0.92em; color: var(--accent); }
 @keyframes blink { 50% { opacity: 0; } }
 
 #frontend { position: fixed; inset: 0; pointer-events: none; }
-#menu-box, .menu-box {
+#menu-box {
   position: absolute; left: 50%; top: 31vh; transform: translateX(-50%);
   width: min(58vw, 92vh, 760px); min-width: min(320px, calc(100vw - 32px));
   pointer-events: auto; user-select: none;
   font: var(--menu-font); color: #fff; text-shadow: var(--menu-outline); text-align: center;
 }
-#menu-header, .menu-header {
+#menu-header {
   padding: 0.12em 0.4em 0.18em;
   background: linear-gradient(#c2c4c6, #9a9c9f 45%, #808285 55%, #8e9093);
   border: 1px solid #e9ebee; border-bottom-color: #3a3c3f;
   white-space: pre-line;
 }
 #menu-header:empty { display: none; }
-#menu-items, .menu-list {
+#menu-items {
   list-style: none; margin: 0.18em 0 0; padding: 0.1em 0;
   border-top: 1px solid rgba(255,255,255,0.85); border-bottom: 1px solid rgba(255,255,255,0.85);
   background: rgba(0, 0, 0, 0.18);
 }
-#menu-items li, .menu-list li { margin: 0; }
+#menu-items li { margin: 0; }
 #menu-items li.rule { height: 0; margin: 0.12em 0; border-top: 1px solid rgba(255,255,255,0.85); }
 #menu-items li.text { padding: 0.02em 0.4em; font-size: 0.86em; }
 #menu-items li.empty { color: #ddd; letter-spacing: 0.3em; }
-#menu-items button, .menu-list button {
+#menu-items button {
   all: unset; box-sizing: border-box; display: block; width: 100%; padding: 0.02em 0.4em;
   border: 1px solid transparent; cursor: pointer; font: inherit; color: inherit; text-shadow: inherit;
 }
-#menu-items button.sel, .menu-list button:focus, .menu-list button:hover {
+#menu-items button.sel {
   background: linear-gradient(rgba(20,22,24,0.88), rgba(45,47,50,0.88)); border-color: #e3e5e8;
 }
 #menu-items .value { color: #ffd84a; }
+#menu-items .arrow { padding: 0 0.15em; cursor: pointer; }
+#menu-items .arrow:hover { color: #fff; }
+#menu-items button.capture .value { animation: blink 0.8s steps(2) infinite; }
 #menu-items .slider { display: inline-block; width: 7em; height: 0.18em; margin: 0 0.4em; vertical-align: middle;
-  background: #d8dadd; border: 1px solid #000; position: relative; }
+  background: #d8dadd; border: 1px solid #000; position: relative; cursor: pointer; touch-action: none; }
+/* A taller hit area than the thin bar, for clicking and dragging. */
+#menu-items .slider::before { content: ''; position: absolute; left: -0.3em; right: -0.3em; top: -0.5em; bottom: -0.5em; }
+#frontend.paused { background: rgba(0,0,0,0.35); }
+/* Long lists (Controller Config) stay below the 3D heading and scroll to fit the screen. */
+#menu-box.compact { display: flex; flex-direction: column; max-height: 64vh; }
+#menu-box.compact #menu-header { font-size: 0.8em; }
+#menu-box.compact #menu-items { font-size: 0.74em; flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 #menu-items .slider i { position: absolute; top: -0.32em; width: 0.32em; height: 0.8em; background: #e9ebee; border: 1px solid #000; transform: translateX(-50%); }
 #menu-help { position: absolute; bottom: 2vh; width: 100%; text-align: center; font: 600 12px var(--mono); color: rgba(255,255,255,0.55); }
 #menu-help kbd { margin: 0 2px; }
-.menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); }
 
 #briefing { position: fixed; inset: 0; background: #000; }
 #briefing-map, .briefing-cockpit { width: 100%; height: 100%; display: block; }

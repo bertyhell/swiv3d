@@ -15,7 +15,7 @@
 // that video's script frame for frame and plays its audio; otherwise it is timed like
 // BR_TER1..6 and built from the briefing's sound effects (cut from BR_TER1): the grid, a
 // waypoint sweep, a close-up appearing, the outro, and the hum under them all.
-import { createCockpit } from './briefing-cockpit.js';
+import { createCockpit } from './cockpit.js';
 import { paintGlobe } from './globe.js';
 
 const $ = (id) => document.getElementById(id);
