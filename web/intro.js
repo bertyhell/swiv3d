@@ -235,6 +235,83 @@ const fenceTex = canvasTexture(128, 128, (g, w, h) => {
   }
 });
 
+/**
+ * Real chain-link, modelled: a row of zig-zag pickets `s` apart, each a flattened helix whose
+ * runs alternate in front of and behind the fence plane. At every bend a picket overshoots its
+ * neighbour's bend and the two hooks thread through each other: each passes in front of the
+ * other above the joint and behind it below. One picket period (two bends, mid-run to mid-run,
+ * so the ends meet seamlessly) is tubed once and instanced over x0..x1, y0..y1.
+ */
+function chainLink(x0, x1, y0, y1, mat, { s = 0.17, H = 0.32, r = 0.009 } = {}) {
+  const o = 0.036;      // how far each bend reaches past its neighbour's
+  const d = 0.03;       // fillet length either side of a bend
+  const D = 0.05;       // densely sampled zone round each bend
+  const c = 0.026;      // height over which the wire swaps sides of the plane at a bend
+  const amp = r * 1.08; // the two wires just touch where they cross
+  const P0 = new THREE.Vector2(s / 2, H / 4), C1 = new THREE.Vector2(s + o, 0);
+  const C2 = new THREE.Vector2(-o, -H / 2), P3 = new THREE.Vector2(s / 2, -3 * H / 4);
+  const pts = [P0, C1, C2, P3];
+  const lens = [P0.distanceTo(C1), C1.distanceTo(C2), C2.distanceTo(P3)];
+  const at = [0, lens[0], lens[0] + lens[1], lens[0] + lens[1] + lens[2]];
+  const dir = (i) => pts[i + 1].clone().sub(pts[i]).normalize();
+  const sharp = (l) => {
+    const i = l < at[1] ? 0 : l < at[2] ? 1 : 2;
+    return pts[i].clone().addScaledVector(dir(i), l - at[i]);
+  };
+  const pos2 = (l) => {
+    for (const k of [1, 2]) {
+      if (Math.abs(l - at[k]) < d) {
+        const a = pts[k].clone().addScaledVector(dir(k - 1), -d), b = pts[k].clone().addScaledVector(dir(k), d);
+        const u = (l - (at[k] - d)) / (2 * d);
+        return a.multiplyScalar((1 - u) ** 2).addScaledVector(pts[k], 2 * u * (1 - u)).addScaledVector(b, u * u);
+      }
+    }
+    return sharp(l);
+  };
+  const side = (y) => (y > -H / 4 ? Math.sin(Math.PI / 2 * Math.max(-1, Math.min(1, y / c)))
+    : -Math.sin(Math.PI / 2 * Math.max(-1, Math.min(1, (y + H / 2) / c))));
+  const point = (l) => { const p = pos2(l); return new THREE.Vector3(p.x, p.y, amp * side(p.y)); };
+  // Few samples on the straight runs, many round the bends.
+  const breaks = [0, at[1] - D, at[1] + D, at[2] - D, at[2] + D, at[3]];
+  const counts = [2, 18, 3, 18, 2];
+  const ls = [0];
+  counts.forEach((n, i) => { for (let k = 1; k <= n; k++) ls.push(lerp(breaks[i], breaks[i + 1], k / n)); });
+  const radial = 7;
+  const verts = [], norms = [], idx = [];
+  const Z = new THREE.Vector3(0, 0, 1);
+  ls.forEach((l) => {
+    const p = point(l);
+    const T = point(Math.min(at[3], l + 1e-4)).sub(point(Math.max(0, l - 1e-4))).normalize();
+    const B = new THREE.Vector3().crossVectors(T, Z).normalize();
+    const N = new THREE.Vector3().crossVectors(B, T);
+    for (let j = 0; j < radial; j++) {
+      const th = j / radial * Math.PI * 2;
+      const n = N.clone().multiplyScalar(Math.cos(th)).addScaledVector(B, Math.sin(th));
+      verts.push(p.x + n.x * r, p.y + n.y * r, p.z + n.z * r);
+      norms.push(n.x, n.y, n.z);
+    }
+  });
+  for (let i = 0; i < ls.length - 1; i++) {
+    for (let j = 0; j < radial; j++) {
+      const a = i * radial + j, b = i * radial + (j + 1) % radial;
+      idx.push(a, a + radial, b, b, a + radial, b + radial);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
+  geo.setIndex(idx);
+  const cols = Math.ceil((x1 - x0) / s), rows = Math.ceil((y1 - y0) / H) + 1;
+  const mesh = new THREE.InstancedMesh(geo, mat, cols * rows);
+  const m = new THREE.Matrix4();
+  let n = 0;
+  for (let j = 0; j < cols; j++) {
+    for (let k = 0; k < rows; k++) m.makeTranslation(x0 + j * s, y1 - k * H - (j % 2) * H / 2, 0), mesh.setMatrixAt(n++, m);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
+
 /** Soft blotches and drips, for anything that should look used. */
 const grimeTex = canvasTexture(128, 256, (g, w, h) => {
   g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
@@ -1190,7 +1267,8 @@ function makeTruck(kind = 'troop') {
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.2, 14), dark);
     bowl.rotation.x = Math.PI / 2;
     lamp.add(bowl);
-    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.12, 14), new THREE.MeshBasicMaterial({ color: 0xfff6d0 }));
+    // Lamps are off: a dull glass lens that only shows what light falls on it.
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.12, 14), new THREE.MeshStandardMaterial({ color: 0x55574e, roughness: 0.25, metalness: 0.4 }));
     lens.position.z = 0.101;
     lamp.add(lens);
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.025, 6, 14), dark);
@@ -1313,12 +1391,19 @@ function signSet() {
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
   const { sky, moon } = nightSky(scene, 0x6a6a78);
-  const fence = new THREE.Mesh(new THREE.PlaneGeometry(80, 4.4), new THREE.MeshStandardMaterial({ map: repeatOf(fenceTex, 80 / 0.34, 4.4 / 0.32), alphaTest: 0.35, side: THREE.DoubleSide, metalness: 0.3, roughness: 0.6, color: 0x80848a }));
-  fence.position.set(0, 2.2, 0);
-  scene.add(fence);
+  // Modelled wire where the camera can see it, the flat texture further out.
+  const NEAR = [-5.1, 6.1];
+  const wire = chainLink(NEAR[0], NEAR[1], 0, 4.4, new THREE.MeshStandardMaterial({ color: 0xb4b8be, metalness: 0.45, roughness: 0.42 }));
+  wire.position.z = -0.02;
+  scene.add(wire);
+  for (const [a, b] of [[-40, NEAR[0]], [NEAR[1], 40]]) {
+    const far = new THREE.Mesh(new THREE.PlaneGeometry(b - a, 4.4), new THREE.MeshStandardMaterial({ map: repeatOf(fenceTex, (b - a) / 0.34, 4.4 / 0.32), alphaTest: 0.35, side: THREE.DoubleSide, metalness: 0.3, roughness: 0.6, color: 0x80848a }));
+    far.position.set((a + b) / 2, 2.2, -0.02);
+    scene.add(far);
+  }
   for (let x = -38.5; x <= 40; x += 6) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 4.5, 6), metal(0x6a6e73));
-    post.position.set(x, 2.25, -0.05);
+    post.position.set(x, 2.25, -0.08);
     scene.add(post);
   }
   const board = new THREE.Mesh(new THREE.BoxGeometry(1.29, 1.16, 0.035), metal(0x0e0f0a, 0.8, 0.3));
@@ -2127,8 +2212,8 @@ export function createIntro(renderer) {
     tw.spot.intensity = lit * 4000;
     const yaw = keyed(t, [[A(244), -1.3], [A(258), -1.05], [A(263), -0.25], [A(266), 0.6], [A(272), 1.25], [A(287), 1.45], [A(292), 2.4], [A(296), 3.6], [A(310), 4.0]]);
     tw.head.rotation.set(0.2, yaw, 0);
-    const k = span(t, A(250), A(300));
-    base.moonTanker.position.set(X + lerp(10, 6.5, k), 0, lerp(-8, -2, k));
+    // The tanker stands parked for the whole shot.
+    base.moonTanker.position.set(X + 10, 0, -8);
     base.moonTanker.rotation.y = -0.55;
     base.pool.intensity = 0;
     base.poolSpot.material.opacity = 0;
