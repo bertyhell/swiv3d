@@ -413,8 +413,9 @@ function drawSignInk(g, w, h, ink, field) {
     g.fill(new Path2D(SIGN_ICONS[kind]));
     g.restore();
   };
-  for (const [x, y, k] of [[100, 96, 'man'], [256, 96, 'flame'], [412, 96, 'rad'], [100, 380, 'bio'], [256, 380, 'blast'], [412, 380, 'mask']]) {
-    g.save(); g.translate(x, y); g.scale(0.9, 0.9); icon(k); g.restore();
+  // Set well in from the sign's edges, as in the video.
+  for (const [x, y, k] of [[122, 112, 'man'], [256, 112, 'flame'], [390, 112, 'rad'], [122, 366, 'bio'], [256, 366, 'blast'], [390, 366, 'mask']]) {
+    g.save(); g.translate(x, y); g.scale(0.8, 0.8); icon(k); g.restore();
   }
 }
 
@@ -628,6 +629,28 @@ const speckleTex = canvasTexture(256, 256, (g, w, h) => {
   g.putImageData(img, 0, 0);
 });
 const groundTex = noiseTexture(128, 128, [70, 72, 70], 40, [40, 40]);
+/** Height map for the sand: low dunes and drifts, with fine wind ripples over them. */
+const duneTex = canvasTexture(256, 256, (g, w, h) => {
+  const r = seeded(5150);
+  g.fillStyle = '#808080'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 90; i++) {
+    const x = r() * w, y = r() * h, s = 20 + r() * 60;
+    const k = r() < 0.5 ? '0,0,0' : '255,255,255';
+    for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) {
+      g.save(); g.translate(x + dx, y + dy); g.scale(1.8, 1);
+      const grd = g.createRadialGradient(0, 0, 0, 0, 0, s);
+      grd.addColorStop(0, `rgba(${k},${0.12 + r() * 0.16})`); grd.addColorStop(1, `rgba(${k},0)`);
+      g.fillStyle = grd; g.fillRect(-s, -s, 2 * s, 2 * s); g.restore();
+    }
+  }
+  g.strokeStyle = 'rgba(0,0,0,0.03)';
+  for (let y = 0; y < h; y += 5) {
+    g.lineWidth = 1 + r() * 1.5; g.beginPath();
+    for (let x = 0; x <= w; x += 6) g.lineTo(x, y + Math.sin(x / w * Math.PI * 6 + y * 0.7) * 2.5);
+    g.stroke();
+  }
+}, { srgb: false });
+
 /** The base's sandy ground: soft drifts and ripples of lighter and darker sand over grain. */
 const sandTex = canvasTexture(256, 256, (g, w, h) => {
   const r = seeded(31337);
@@ -1357,28 +1380,44 @@ function makeBunker({ cornerLamp = false } = {}) {
   const door = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.2), metal(0x222426, 0.8, 0.4));
   door.position.set(2, 1.1, 3.51);
   g.add(door);
-  const lamp = new THREE.PointLight(0xfff0c8, 8, 9, 1.5);
+  const lamp = new THREE.PointLight(0xfff0c8, cornerLamp ? 0 : 8, 9, 1.5);
   lamp.position.set(2, 2.7, 4.2);
   g.add(lamp);
   if (cornerLamp) {
     const fix = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.5), metal(0x2a2c30, 0.6, 0.5));
-    fix.position.set(-4.65, 2.75, 2.6);
+    fix.position.set(-4.65, 2.75, 3.6);
     g.add(fix);
     const bulb = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.24), new THREE.MeshBasicMaterial({ color: 0xfff6dc }));
     bulb.rotation.x = Math.PI / 2;
-    bulb.position.set(-4.7, 2.63, 2.6);
+    bulb.position.set(-4.7, 2.63, 3.6);
     g.add(bulb);
-    const spot = new THREE.SpotLight(0xfff0d0, 60, 14, 0.9, 0.7, 1.4);
+    // The lamp lights mostly the air under it, as in the video: a soft wedge of light fanning
+    // down the wall, with only a faint patch on the ground.
+    const spot = new THREE.SpotLight(0xfff0d0, 10, 7, 0.6, 0.8, 1.6);
     spot.position.set(-4.75, 2.6, 2.6);
-    spot.target.position.set(-6.2, 0, 2.6);
+    spot.target.position.set(-5.3, 0, 2.6);
     g.add(spot, spot.target);
-    const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), additive(pondTex, 0x8a8678, 1));
+    // A flat fan of light (a wide, thin cone) hanging down from the lamp against the wall.
+    const wedgeGeo = new THREE.ConeGeometry(1.9, 3.0, 40, 4, true);
+    wedgeGeo.rotateX(Math.PI); wedgeGeo.translate(0, 1.5, 0); wedgeGeo.scale(1, 1, 0.35);
+    const wedge = new THREE.Mesh(wedgeGeo, volumeBeam(0xfff2d8, { len: 3.0, rim: 0.6, fall: 0.9, hot: 0.5 }));
+    wedge.material.uniforms.opacity.value = 0.75;
+    // At the front corner, its flat face turned out to the front so it reads as a triangle.
+    // (The fan opens along its local +y, so it is turned upside down to hang from the lamp.)
+    wedge.position.set(-4.75, 2.6, 3.7);
+    wedge.rotation.set(Math.PI - 0.12, -0.6, 0);
+    g.add(wedge);
+    const wash = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 2.6), additive(washTex, 0xfff0d0, 0.35));
+    wash.rotation.set(0, -Math.PI / 2, 0);
+    wash.position.set(-4.53, 1.3, 2.6);
+    g.add(wash);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), additive(pondTex, 0x4a4840, 0.5));
     pool.rotation.x = -Math.PI / 2;
-    pool.scale.set(5.5, 6.5, 1);
-    pool.position.set(-6.4, 0.04, 2.6);
+    pool.scale.set(1.8, 3.0, 1);
+    pool.position.set(-5.2, 0.04, 4.4);
     g.add(pool);
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: pondTex, color: 0x9a968a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    halo.position.set(-4.75, 2.6, 2.6);
+    halo.position.set(-4.75, 2.6, 3.7);
     halo.scale.setScalar(1.4);
     g.add(halo);
   }
@@ -1728,40 +1767,70 @@ const additive = (map, color = 0xffffff, opacity = 0) => new THREE.MeshBasicMate
 const repeatOf = (tex, x, y) => { const t = tex.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(x, y); t.needsUpdate = true; return t; };
 
 /** A cloud deck that rides with the camera, lit by the moon, over a near-black night. */
-/** Moonlit cloud: a soft halo, brightest near the middle, broken up by streaky wisps. */
-const moonCloudTex = canvasTexture(256, 128, (g, w, h) => {
-  const r = seeded(808);
-  for (let i = 0; i < 46; i++) {
-    const x = w / 2 + (r() - 0.5) * w * 0.8, y = h / 2 + (r() - 0.5) * h * 0.55;
-    const near = 1 - Math.min(1, Math.hypot((x - w / 2) / (w / 2), (y - h / 2) / (h / 2)));
-    const sx = 18 + r() * 46, sy = 4 + r() * 9;
-    g.save(); g.translate(x, y); g.scale(1, sy / sx);
-    const grd = g.createRadialGradient(0, 0, 0, 0, 0, sx);
-    grd.addColorStop(0, `rgba(255,255,255,${0.12 + near * 0.35})`); grd.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = grd; g.fillRect(-sx, -sx, 2 * sx, 2 * sx); g.restore();
-  }
-  const grd = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, h * 0.45);
-  grd.addColorStop(0, 'rgba(255,255,255,0.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grd; g.fillRect(0, 0, w, h);
-});
+/** A night cloud deck: ragged, wind-stretched banks of cloud, density in the alpha channel. */
+const nightCloudTex = (() => {
+  const t = canvasTexture(512, 512, (g, w, h) => {
+    const r = seeded(7373);
+    g.clearRect(0, 0, w, h);
+    for (let i = 0; i < 520; i++) {
+      const x = r() * w, y = r() * h, sx = 14 + r() * 60, sy = sx * (0.25 + r() * 0.2);
+      // Banks: denser along a few diagonal bands, thin between them.
+      const band = 0.5 + 0.5 * Math.sin(y / h * Math.PI * 6 + x / w * 2.4);
+      const a = (0.04 + r() * 0.1) * (0.3 + band);
+      for (const dx of [-w, 0, w]) for (const dy of [-h, 0, h]) {
+        const cx = x + dx, cy = y + dy;
+        if (cx < -sx || cx > w + sx || cy < -sx || cy > h + sx) continue;
+        g.save(); g.translate(cx, cy); g.scale(1, sy / sx);
+        const grd = g.createRadialGradient(0, 0, 0, 0, 0, sx);
+        grd.addColorStop(0, `rgba(255,255,255,${a})`); grd.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = grd; g.fillRect(-sx, -sx, 2 * sx, 2 * sx); g.restore();
+      }
+    }
+  }, { srgb: false });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+})();
 
+/**
+ * The night sky: a cloud deck lying flat high above the camera (it follows the camera), and the
+ * moon beyond it. The deck is dark where it is thick and lit silver near the moon, brightest
+ * at its thin edges, so the moon glows through it and the clouds drift across its face.
+ */
 function nightSky(scene, tint = 0xffffff) {
-  const sky = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000),
-    new THREE.MeshBasicMaterial({ map: repeatOf(cloudTex, 7, 7), color: tint, fog: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  const sky = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), new THREE.ShaderMaterial({
+    uniforms: { map: { value: nightCloudTex }, tint: { value: new THREE.Color(tint) }, moonDir: { value: V(0, 0.3, -1).normalize() },
+      shift: { value: new THREE.Vector2() } },
+    vertexShader: `varying vec2 vUv; varying vec3 vW;
+      void main() { vUv = uv * 9.0; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz - cameraPosition;
+        gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform sampler2D map; uniform vec3 tint; uniform vec3 moonDir; uniform vec2 shift;
+      varying vec2 vUv; varying vec3 vW;
+      void main() {
+        vec3 dir = normalize(vW);
+        float dens = texture2D(map, vUv + shift).a;
+        dens = clamp(dens * 1.6, 0.0, 1.0);
+        float c = max(dot(dir, normalize(moonDir)), 0.0);
+        float glow = pow(c, 80.0) * 2.2 + pow(c, 14.0) * 0.6 + pow(c, 3.0) * 0.12;
+        vec3 col = tint * (0.07 + glow * 0.9) + vec3(0.85, 0.85, 1.0) * glow * (1.0 - dens) * 0.9;
+        float a = dens * 0.92 * smoothstep(0.03, 0.15, dir.y);
+        gl_FragColor = vec4(col, a);
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false,
+  }));
   sky.rotation.x = Math.PI / 2;
   sky.geometry.translate(0, 0, -260);
-  sky.renderOrder = -2;
+  // Drawn after the moon, so the clouds pass in front of it.
+  sky.renderOrder = 0;
   scene.add(sky);
   const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonTex, fog: false, depthWrite: false, blending: THREE.AdditiveBlending }));
   moon.scale.set(300, 300, 1);
   moon.renderOrder = -1;
   scene.add(moon);
-  // Cloud lit by the moon: a halo with wisps drifting across it, as in the video.
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: moonCloudTex, color: 0x9c98c0, fog: false, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.55 }));
-  halo.scale.set(2.4, 1.2, 1);
-  halo.renderOrder = -1;
-  moon.add(halo);
-  moon.userData.halo = halo;
+  /** Point the deck's lighting at the moon and drift it with time. */
+  sky.userData.update = (cam, t) => {
+    sky.material.uniforms.moonDir.value.copy(moon.position).sub(cam.position).normalize();
+    sky.material.uniforms.shift.value.set(t * 0.0025, t * 0.001);
+  };
   return { sky, moon };
 }
 
@@ -1915,7 +1984,8 @@ function baseSet() {
   frontLight.position.set(30, 50, 70);
   scene.add(frontLight);
   // Sand, as in the video: drifts and ripples, warm under the cold moonlight.
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 800), new THREE.MeshStandardMaterial({ color: 0x8e8a80, map: repeatOf(sandTex, 200, 40), roughness: 1 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 800), new THREE.MeshStandardMaterial({ color: 0x8e8a80, map: repeatOf(sandTex, 200, 40), roughness: 1,
+    bumpMap: repeatOf(duneTex, 220, 44), bumpScale: 14 }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.x = 750;
   scene.add(ground);
@@ -2512,65 +2582,56 @@ function duskSet() {
 }
 
 // T: the logo.
+/**
+ * The SWIV 3D logo, traced from the video's logo frames (an average of frames 885-930 of
+ * INTRO2, thresholded and traced): `outline` is the whole chrome silhouette including the 3-D
+ * gunsight, `faces` the pale-blue letter faces. Units: the traced area is 1000 wide.
+ */
+const LOGO_TRACE = {"w": 1000, "h": 312.5, "outline": "M343,14 346,14 349,14 351,15 352,15 354,16 358,16 364,16 374,16 386,15 395,15 402,14 406,14 408,14 409,14 410,15 411,15 411,17 411,19 409,23 407,27 405,30 404,33 404,35 404,36 403,38 403,39 402,41 401,43 399,49 395,57 390,68 383,83 378,94 374,103 372,109 371,112 369,115 368,119 366,123 363,127 361,131 360,134 359,136 359,137 358,139 357,140 357,141 356,142 355,144 354,144 354,145 354,146 354,147 354,148 355,148 356,149 357,149 359,149 361,149 363,149 365,148 366,148 367,147 367,146 368,145 368,144 368,143 368,141 369,139 370,137 372,134 374,130 376,126 379,120 382,113 384,108 386,104 387,102 387,101 388,100 388,99 389,98 389,97 390,94 391,91 393,88 396,83 398,79 399,75 401,71 401,68 403,64 405,60 408,54 411,48 413,42 415,39 416,36 416,35 417,34 417,33 418,33 419,32 419,31 419,30 419,29 419,27 420,25 421,23 422,20 423,18 425,16 426,15 428,15 430,14 432,14 435,14 437,14 439,14 441,15 442,15 443,15 445,16 450,16 457,15 465,15 473,15 479,14 485,14 489,14 493,14 495,15 496,15 497,15 496,17 495,20 494,23 491,28 489,32 488,35 487,37 486,40 484,45 481,52 477,61 473,68 471,74 469,78 468,81 467,84 466,86 465,87 465,88 464,89 464,90 463,91 463,92 462,95 461,99 458,104 455,111 452,117 450,121 449,123 449,124 449,125 448,126 447,128 446,130 445,132 444,134 442,137 441,140 440,142 439,144 439,146 439,147 439,148 440,148 441,149 442,149 443,149 445,149 446,149 447,149 448,149 449,148 450,148 451,148 451,147 452,146 452,145 452,143 452,141 454,139 455,136 458,132 459,128 460,126 461,124 461,123 462,121 462,120 463,119 464,118 464,117 465,116 465,115 465,113 467,109 470,102 475,91 482,78 487,66 491,56 494,49 496,43 498,39 500,36 501,34 502,33 503,32 504,31 504,29 504,28 504,26 504,24 505,22 506,20 507,18 508,16 509,15 511,15 512,15 515,15 517,14 520,15 523,15 525,15 526,15 526,16 530,16 538,16 550,15 565,15 576,15 584,15 588,15 589,15 589,16 590,17 589,18 589,20 588,21 587,23 586,25 585,27 584,28 584,29 584,30 583,31 583,32 582,34 581,36 580,38 579,41 578,44 575,49 572,56 567,66 562,78 558,87 555,93 553,97 553,98 552,101 550,105 548,111 544,118 541,124 540,128 539,131 539,133 538,134 538,135 538,136 537,136 536,137 536,138 536,139 535,140 535,142 533,144 531,147 528,151 526,154 524,158 522,161 521,164 519,167 517,170 514,173 512,176 508,179 504,182 500,185 495,189 490,192 485,195 479,198 473,200 467,202 461,204 454,205 448,207 441,208 435,208 430,209 425,209 411,210 389,210 358,210 318,209 287,209 264,209 249,209 243,209 238,209 234,209 232,209 230,210 229,210 227,210 226,210 224,210 222,209 221,209 220,208 219,207 220,206 221,205 223,205 225,204 226,203 227,202 228,201 229,200 232,198 235,196 239,194 242,191 245,189 247,188 247,186 249,185 250,183 251,182 253,180 255,179 257,177 258,175 260,173 262,170 264,167 266,163 269,159 272,154 274,148 277,142 280,134 283,128 285,123 287,120 288,117 290,115 290,113 291,111 291,110 292,109 292,106 294,104 295,101 297,98 297,96 298,95 298,94 298,92 299,90 300,88 302,85 304,81 306,76 309,70 311,64 313,59 315,55 316,53 317,52 318,50 319,47 321,43 324,38 326,33 327,30 328,27 328,25 329,24 330,22 330,20 331,19 332,18 333,17 334,16 336,15 338,14 340,14ZM789,14 790,14 791,14 792,15 793,16 793,17 793,19 793,20 792,22 792,23 791,24 790,25 789,27 788,29 786,33 785,37 782,44 778,53 773,63 767,76 763,86 760,93 759,97 758,98 758,99 758,100 757,101 756,101 755,103 754,106 752,110 750,115 748,120 746,125 743,130 741,135 739,139 737,142 736,145 736,146 736,147 737,148 738,148 740,149 741,149 743,149 745,148 747,148 748,147 749,146 749,144 749,143 749,142 750,140 751,139 752,138 753,138 753,137 754,136 754,135 754,133 755,130 757,127 759,123 761,119 763,114 765,109 767,104 770,97 773,89 778,79 783,69 787,59 791,52 793,47 794,44 795,41 796,39 797,37 797,36 797,35 798,34 799,33 800,32 800,31 801,31 801,30 801,29 801,27 801,25 802,23 803,20 805,18 806,16 807,15 809,15 810,15 813,15 815,14 818,15 821,15 822,15 824,16 825,16 831,16 841,16 857,16 878,15 894,15 905,15 911,15 911,16 912,17 912,18 911,20 911,22 909,24 907,28 905,32 902,36 900,41 898,46 896,51 894,55 893,58 892,60 891,61 890,62 889,64 888,66 888,69 886,72 885,75 883,78 881,81 879,85 877,88 875,91 874,95 873,97 872,99 871,101 870,101 869,103 867,106 865,109 862,114 859,119 855,125 850,131 845,137 839,143 834,148 830,152 825,156 820,161 814,165 807,170 799,175 792,180 785,184 778,187 771,190 764,193 757,196 750,198 742,200 734,202 723,204 712,206 699,207 687,209 675,209 665,210 654,210 646,210 641,210 637,209 635,209 633,209 631,209 629,209 627,209 624,210 619,210 613,210 606,210 600,210 596,209 594,209 594,208 594,207 594,206 595,205 597,204 599,204 602,203 605,201 609,199 613,196 617,192 621,189 624,187 625,185 626,184 627,182 629,180 630,179 633,177 635,174 638,171 640,167 643,162 646,158 648,155 649,152 650,151 651,149 652,147 652,146 652,144 653,143 654,141 655,138 656,136 658,133 659,130 660,127 661,125 662,121 664,117 666,113 669,108 671,103 672,100 673,98 673,97 674,96 674,94 676,91 677,88 679,86 679,84 680,82 680,81 681,79 682,76 684,72 687,68 689,64 691,60 692,57 693,54 693,51 695,48 696,45 697,43 699,40 700,38 700,37 700,35 701,34 702,33 702,32 703,31 704,30 704,29 704,28 704,27 705,25 705,24 706,22 707,20 708,19 709,17 710,16 711,15 713,15 715,15 718,14 722,14 725,14 727,15 729,15 731,16 736,16 743,16 754,16 768,15 778,14 785,14ZM311,14 314,15 317,15 319,15 320,16 320,17 320,18 320,19 319,20 318,21 317,22 317,24 317,25 317,27 316,29 315,31 314,33 312,36 311,39 310,41 309,42 309,43 309,45 308,47 307,49 305,52 304,54 303,57 303,58 302,60 302,62 301,63 300,65 299,66 290,67 274,68 250,68 218,68 195,68 178,69 170,69 169,69 169,70 169,71 169,72 169,73 169,74 168,75 168,76 167,77 167,79 167,80 168,80 168,81 169,81 170,81 171,81 172,81 180,80 195,80 217,80 246,80 268,80 283,80 290,81 291,81 292,82 292,83 292,84 292,85 292,86 291,87 290,88 289,89 288,90 288,91 288,92 287,94 286,97 284,100 282,104 280,107 279,110 278,112 278,113 277,115 277,117 275,119 274,122 272,126 271,129 270,132 269,136 268,139 267,141 265,144 264,146 262,147 261,149 261,150 260,151 260,152 259,153 259,154 258,154 257,156 255,158 253,161 251,166 248,170 245,173 242,177 238,181 234,184 231,187 227,189 224,191 221,193 217,195 213,197 209,199 205,200 200,202 196,203 191,204 186,205 182,206 177,207 172,208 167,208 162,209 156,209 150,210 139,210 124,210 103,210 77,210 57,210 43,210 34,209 31,209 29,209 26,209 24,209 21,209 20,209 19,209 18,209 17,208 17,207 17,206 17,205 18,203 19,202 20,200 21,198 21,197 20,195 20,193 21,191 22,189 24,187 25,184 27,182 28,179 28,177 29,175 30,173 31,172 31,171 32,170 33,168 33,167 33,165 34,163 35,161 37,159 39,157 41,155 42,154 43,154 45,154 46,154 47,154 49,154 50,154 52,154 53,154 54,154 55,154 56,155 58,155 59,154 61,154 67,154 78,153 95,153 116,153 132,153 143,153 149,154 151,154 152,154 155,154 158,154 162,154 164,153 167,152 168,151 168,149 169,148 170,147 171,146 172,145 172,144 173,144 172,143 172,142 171,142 170,142 163,141 148,141 127,141 98,141 77,141 61,141 52,141 49,140 47,140 46,139 45,139 45,138 45,137 46,136 47,135 48,134 48,132 49,130 50,127 51,125 51,124 52,122 53,122 54,120 56,117 58,112 60,107 62,103 63,99 65,95 65,93 66,90 68,87 69,84 71,81 73,79 74,77 74,75 75,73 76,71 77,69 78,67 80,65 81,62 83,59 86,57 88,54 90,52 92,50 92,49 93,48 93,47 95,46 97,44 99,42 101,40 103,39 105,38 106,38 108,37 109,36 110,35 112,34 113,32 115,31 118,30 120,28 123,27 125,26 127,26 128,25 130,25 131,25 133,24 134,25 135,24 137,24 138,23 140,21 142,20 145,20 149,19 153,19 156,19 158,19 160,18 162,17 163,17 166,16 169,16 171,16 174,16 176,16 178,16 180,17 181,18 181,19 181,20 180,21 180,22 179,23 178,23 177,24 177,25 177,26 178,27 179,27 186,27 200,27 220,27 246,27 267,27 280,27 288,27 290,27 291,26 292,25 293,23 295,20 296,18 298,17 300,16 302,15 305,15 308,15ZM610,14 613,14 616,14 618,15 619,15 620,16 626,16 635,16 650,16 668,15 682,15 692,15 697,15 698,16 698,17 698,18 698,20 697,21 696,23 694,26 692,28 691,31 689,35 688,38 687,41 686,43 685,44 684,45 678,45 667,45 651,46 630,46 614,45 603,45 598,45 597,44 596,44 594,44 593,44 591,44 590,44 590,43 589,42 589,41 590,40 590,39 591,38 592,37 593,35 594,33 595,30 596,28 597,26 598,24 599,23 600,22 600,21 600,20 600,19 601,17 601,16 602,16 603,15 605,15 607,14ZM596,58 597,58 599,59 602,59 606,58 610,58 617,58 627,57 639,57 654,57 666,57 673,58 677,58 678,58 678,59 678,60 677,62 676,63 676,65 675,66 675,68 675,69 674,71 674,73 672,75 671,78 668,82 666,88 662,96 658,105 655,112 653,118 650,122 649,125 648,127 647,129 647,131 646,133 646,135 645,137 644,139 642,141 641,143 640,145 640,146 639,147 639,149 638,150 637,152 636,153 635,155 634,157 633,158 633,159 632,161 629,164 625,169 619,175 614,181 610,185 606,188 602,191 598,193 594,195 590,197 586,199 581,201 575,202 567,204 559,206 549,207 537,208 524,209 509,209 498,209 490,208 487,208 487,206 488,205 490,204 493,203 496,201 499,200 502,198 505,195 508,193 510,191 513,189 514,188 516,188 517,187 519,185 520,184 522,182 523,181 524,179 524,178 524,177 525,176 526,175 527,174 528,172 529,171 529,170 530,169 531,167 533,164 535,160 539,155 541,152 543,149 544,146 544,145 545,143 546,141 547,138 549,135 551,131 553,125 556,120 558,113 561,107 562,103 564,101 564,100 565,99 565,98 566,97 566,95 567,92 569,89 571,85 573,82 574,80 574,78 574,77 575,76 575,75 576,74 577,73 577,72 578,71 578,69 579,68 579,66 580,65 581,63 583,61 584,60 586,59 588,58 590,58 592,58 594,58ZM900,118 901,118 902,118 903,119 904,120 905,122 905,126 905,130 905,137 906,141 907,144 908,146 910,146 912,147 915,148 917,148 921,150 924,151 927,152 930,154 933,156 936,158 939,160 942,162 945,165 947,168 950,171 952,175 954,179 956,184 958,188 959,192 960,197 960,200 961,202 961,204 962,204 963,204 966,204 971,204 977,204 981,205 984,205 986,205 986,206 987,206 987,207 987,209 987,210 986,212 986,213 985,214 984,214 981,214 978,214 973,214 969,215 966,215 965,215 963,215 962,217 961,219 960,223 959,228 958,232 956,236 954,241 952,245 950,249 948,252 946,254 945,255 943,257 940,259 936,262 931,265 926,268 921,270 917,272 912,273 909,275 906,279 905,284 905,290 905,295 904,298 904,300 903,301 902,302 901,302 900,302 899,302 898,301 897,301 897,300 896,298 896,295 895,290 895,283 894,278 892,275 889,272 885,271 880,269 876,267 871,264 865,260 861,256 856,251 852,245 849,239 846,233 844,229 843,224 842,221 841,218 838,216 834,216 829,215 825,215 821,216 818,216 817,216 815,216 814,216 812,216 811,215 810,214 810,213 809,211 809,210 809,209 809,208 810,207 810,206 811,205 813,205 817,205 822,204 829,204 834,204 838,204 840,204 841,204 841,203 842,201 842,200 842,197 843,195 843,192 844,190 845,187 847,184 849,180 852,176 855,171 858,167 861,163 865,160 869,157 873,155 877,152 882,150 888,148 892,145 894,141 896,136 896,130 896,125 896,122 897,120 898,119 899,118ZM906,157 905,161 905,166 905,175 905,186 905,195 906,201 907,204 908,204 909,204 910,204 911,204 911,203 911,201 911,198 911,195 912,192 915,191 919,190 925,190 929,190 932,190 935,190 936,191 938,191 939,192 941,194 943,195 945,197 946,198 947,200 947,203 948,206 948,209 947,213 946,217 945,221 944,224 943,226 942,227 941,228 940,229 939,230 938,231 936,231 932,231 928,231 922,232 917,232 914,231 912,231 912,230 911,229 911,227 911,224 911,221 911,218 910,216 909,215 908,215 907,215 906,215 905,216 905,219 905,225 905,233 905,245 905,254 906,260 906,263 907,263 908,263 910,263 912,263 914,262 916,261 919,260 922,259 925,257 928,255 931,253 934,250 938,246 940,243 942,241 944,238 945,236 946,235 946,233 947,231 947,230 947,228 948,227 948,225 949,224 950,222 950,218 950,214 951,209 951,204 950,201 950,198 949,197 948,195 948,193 947,191 947,189 947,188 946,186 946,184 945,182 943,180 941,177 939,174 936,171 933,168 929,166 926,163 921,161 918,160 914,158 912,157 910,157 908,157 907,157ZM885,160 881,162 876,164 872,167 869,170 865,173 862,176 860,180 857,183 856,187 854,191 853,195 852,198 851,202 851,207 851,212 852,217 853,223 854,228 856,233 857,236 859,239 861,242 863,245 866,248 869,251 872,254 875,256 878,258 881,260 884,261 887,262 889,262 891,262 893,262 894,262 895,262 895,259 895,253 896,244 896,232 896,223 895,217 895,214 894,213 893,213 892,213 891,214 891,215 892,216 892,217 892,218 892,219 891,221 890,222 890,224 889,226 887,227 886,228 885,229 883,229 881,230 880,230 877,230 874,231 871,230 867,230 864,230 862,229 860,228 859,227 859,226 858,225 858,224 858,223 858,222 858,221 859,220 860,219 861,219 862,218 864,219 867,219 869,219 870,219 872,219 872,218 873,218 873,217 873,216 873,215 871,215 870,215 868,214 866,214 865,214 864,213 864,212 863,211 863,210 863,208 864,207 865,206 867,205 869,205 871,204 872,204 873,203 873,202 873,201 872,200 871,199 869,199 868,199 866,199 865,199 864,200 863,200 862,200 861,200 860,199 859,198 859,197 858,195 858,194 858,192 859,191 860,191 861,190 863,189 865,188 868,188 871,188 874,188 877,188 879,188 882,189 884,190 886,191 888,193 889,194 890,196 891,198 891,201 892,203 892,204 893,204 894,204 895,201 895,195 896,186 896,175 895,166 895,161 894,158 893,157 891,158 889,159Z", "faces": "M217,36 242,36 261,37 275,37 282,37 283,38 283,39 283,40 283,42 283,44 276,45 262,46 241,47 214,47 194,47 179,47 171,48 170,48 168,49 167,49 166,50 166,52 165,53 164,53 163,54 162,54 161,54 160,55 159,56 159,58 158,59 158,60 157,60 156,60 156,59 155,58 155,57 155,56 155,55 154,55 153,55 152,55 151,56 150,57 149,58 149,59 148,61 147,63 147,65 146,67 146,71 146,75 146,79 146,83 146,87 146,90 146,93 147,95 147,97 148,98 148,99 150,100 154,100 159,101 165,102 170,102 173,102 175,101 175,100 175,99 176,98 177,98 181,97 187,97 195,97 206,97 214,98 220,98 223,98 224,98 224,99 224,100 224,101 226,102 230,103 236,104 244,104 249,104 253,105 255,106 255,107 254,109 253,112 252,116 250,120 248,123 247,126 247,128 247,129 246,130 245,132 244,135 242,138 240,140 239,142 239,144 239,146 238,147 238,148 237,148 236,148 234,149 233,151 232,152 231,154 230,155 230,157 230,158 230,159 231,159 232,159 233,159 233,160 234,160 234,161 232,163 230,165 226,168 221,172 217,175 214,177 212,178 211,178 210,179 209,179 207,180 206,181 203,182 200,183 196,184 190,185 178,186 159,187 133,187 101,187 77,187 60,186 53,184 53,182 53,180 54,179 55,178 56,177 57,176 58,175 58,174 58,173 64,172 75,171 93,171 115,171 133,172 144,172 150,173 150,174 151,175 153,176 156,176 160,176 163,176 167,176 170,175 174,174 177,173 179,172 182,171 184,170 185,169 187,167 188,165 189,162 190,159 191,156 191,151 192,146 192,141 192,137 191,133 191,130 190,128 189,126 188,124 188,123 180,122 167,121 147,121 120,120 101,120 87,119 81,118 81,117 82,114 84,110 87,103 91,94 96,86 100,79 104,73 109,67 113,63 117,59 121,55 125,52 129,50 133,48 137,46 141,44 145,43 151,41 158,40 166,38 179,37 196,37ZM359,37 364,37 368,37 370,37 372,38 373,38 373,39 373,40 371,46 366,58 359,74 349,96 342,115 337,131 334,143 334,153 335,160 336,164 337,167 339,167 341,167 342,168 344,168 345,169 348,170 351,170 356,170 362,170 367,170 371,170 374,169 376,169 378,168 380,167 382,166 383,165 388,156 396,140 406,116 420,85 432,61 441,45 447,38 451,37 454,38 456,38 457,39 457,40 455,44 452,52 447,63 440,77 436,88 432,96 431,100 431,102 430,104 429,107 427,110 424,115 422,120 420,124 419,128 418,132 417,137 417,142 417,149 417,156 419,162 421,166 425,168 429,169 434,170 438,170 443,170 447,170 452,170 456,169 460,167 463,166 469,156 478,140 489,116 503,85 513,62 520,46 524,38 525,38 527,38 530,37 534,37 539,37 544,37 547,38 549,38 550,39 551,39 551,40 552,41 551,42 551,43 550,44 549,46 548,47 548,48 548,49 548,50 547,52 546,55 544,59 541,64 539,68 537,72 536,76 535,79 535,81 534,83 533,84 532,85 531,87 530,89 529,91 528,94 527,97 526,100 524,103 523,106 521,109 520,112 519,115 518,118 517,122 514,127 510,134 505,142 501,148 499,152 497,155 497,156 498,156 498,157 499,157 500,157 501,158 501,159 501,160 500,161 499,162 497,164 494,167 491,169 488,171 484,172 480,174 477,175 474,177 473,178 472,179 469,181 462,182 453,184 441,186 423,187 399,188 370,188 336,188 310,188 292,188 284,187 283,186 284,184 286,179 289,174 294,166 300,153 308,136 319,112 331,84 340,63 347,48 350,40 351,39 353,38 356,38ZM738,38 745,38 749,40 751,43 751,47 749,53 747,59 744,64 742,69 740,74 738,78 737,81 736,83 736,84 734,88 732,94 728,103 723,114 719,124 716,134 715,144 716,152 716,159 717,164 718,167 719,168 720,168 723,169 726,170 730,170 735,170 740,170 745,170 750,169 754,168 758,167 762,166 764,164 769,156 776,140 786,119 799,90 808,68 815,53 820,44 821,41 825,39 832,38 841,37 853,37 861,38 867,38 871,40 871,41 870,45 867,51 863,60 858,70 852,80 847,90 841,98 836,106 831,112 829,116 827,119 827,120 827,121 828,121 829,122 830,122 831,122 831,123 830,125 828,127 826,130 823,133 820,136 817,139 814,142 812,144 809,146 808,147 806,147 805,148 804,148 803,149 802,150 801,152 799,153 797,154 795,155 792,156 790,157 788,158 786,159 785,161 784,162 783,163 782,163 781,163 780,164 779,164 777,165 776,166 774,168 769,170 763,173 755,176 746,178 736,181 724,183 710,185 698,186 687,188 678,188 671,188 665,188 661,188 659,187 659,186 660,184 662,180 665,174 669,168 674,157 681,143 689,125 698,102 706,84 713,69 718,57 722,49 727,43 732,39ZM606,75 607,75 608,75 608,76 609,76 609,78 611,79 615,79 621,79 629,79 634,80 638,82 640,84 639,86 638,90 636,94 634,98 632,103 629,108 628,111 626,115 626,117 624,122 621,127 617,134 612,143 609,150 607,155 606,158 606,160 606,162 605,164 604,165 602,167 600,168 598,169 595,170 593,171 591,172 589,173 588,174 588,175 587,175 586,176 585,176 584,176 583,177 582,177 581,178 580,179 578,180 574,181 569,182 562,184 556,184 553,184 551,184 551,183 552,181 554,177 557,172 561,165 566,156 572,144 578,128 586,110 592,97 597,87 600,82 601,81 603,80 604,78 604,77 605,76 605,75 606,75Z"};
+
 function logoSet() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
-  // The SWIV lettering, drawn the way the video's logo is built: wide italic monoline letters
-  // (a squared S, a W of three stems joined at the foot, a stemmed i with its dot, a V whose
-  // right arm rakes out), each stroke a pale blue fill inside a chrome rim with a dark groove,
-  // standing on a steel-blue extrusion. Skeletons are in letter units (cap height 100, y down).
-  const R = 18; // corner radius of the skeleton
-  const LETTERS = [
-    { x: 0, strokes: [[[158, 18], [18, 18], [18, 64], [140, 64], [140, 110], [0, 110]]] },
-    { x: 178, strokes: [[[18, 0], [18, 110], [168, 110], [168, 0]], [[93, 0], [93, 110]]] },
-    { x: 380, strokes: [[[18, 42], [18, 110]], [[18, 0], [18, 16]]] },
-    { x: 432, r: 40, strokes: [[[18, 0], [18, 110], [122, 110], [150, 0]]] },
-  ];
+  // The logo is drawn from LOGO_TRACE: the chrome silhouette (letters, bevels and the 3-D
+  // gunsight) and the pale-blue letter faces inside it.
   const tex = canvasTexture(1024, 320, (g, w, h) => {
+    const r = seeded(2024);
     g.clearRect(0, 0, w, h);
-    const trace = () => {
-      g.beginPath();
-      for (const L of LETTERS) for (const st of L.strokes) {
-        const P = st.map(([x, y]) => [x + L.x, y]);
-        g.moveTo(...P[0]);
-        for (let i = 1; i < P.length - 1; i++) g.arcTo(...P[i], ...P[i + 1], L.r ?? R);
-        g.lineTo(...P[P.length - 1]);
-      }
-    };
-    const pass = (width, style, dx = 0, dy = 0) => {
-      g.save(); g.translate(dx, dy); g.lineWidth = width; g.strokeStyle = style; trace(); g.stroke(); g.restore();
-    };
     g.save();
-    g.translate(82, 78);
-    g.scale(1.36, 1.36);
-    g.transform(1, 0, -0.32, 1, 0, 0);
-    g.lineCap = 'round'; g.lineJoin = 'round';
-    for (let k = 7; k > 0; k--) pass(38, `rgb(${16 + k * 4},${22 + k * 5},${36 + k * 8})`, k * 0.7, k * 0.9);
-    pass(40, '#04060a');
-    const chrome = g.createLinearGradient(0, -8, 0, 128);
-    chrome.addColorStop(0, '#f6f9ff'); chrome.addColorStop(0.18, '#9aa8bc'); chrome.addColorStop(0.32, '#3a4458');
-    chrome.addColorStop(0.45, '#dfe7f4'); chrome.addColorStop(0.62, '#58667e'); chrome.addColorStop(0.8, '#e8eef8'); chrome.addColorStop(1, '#6a7890');
-    pass(36, chrome);
-    pass(24, '#2a3448');
-    // Chrome faces: pale sky above a dark horizon line, warm ochre ground below it.
-    const fill = g.createLinearGradient(0, 0, 0, 120);
-    fill.addColorStop(0, '#eef4ff'); fill.addColorStop(0.3, '#a8c4ec'); fill.addColorStop(0.47, '#6a8cc4');
-    fill.addColorStop(0.5, '#1c2230'); fill.addColorStop(0.54, '#7a7266'); fill.addColorStop(0.78, '#cdc6b4'); fill.addColorStop(1, '#eeece6');
-    pass(21, fill);
-    pass(3.5, 'rgba(20,26,40,0.75)');
-    pass(3, 'rgba(255,255,255,0.45)', -1.5, -1.5);
+    g.scale(w / LOGO_TRACE.w, w / LOGO_TRACE.w);
+    const outline = new Path2D(LOGO_TRACE.outline), faces = new Path2D(LOGO_TRACE.faces);
+    // Chrome: bright and dark bands, as if reflecting a pale sky over a dark horizon, broken up
+    // by streaks of blue-green reflection.
+    g.save();
+    g.clip(outline, 'evenodd');
+    const chrome = g.createLinearGradient(0, 0, 40, LOGO_TRACE.h);
+    chrome.addColorStop(0, '#f2f7ff'); chrome.addColorStop(0.16, '#9aa8b8'); chrome.addColorStop(0.3, '#2e3848');
+    chrome.addColorStop(0.42, '#e4ecf4'); chrome.addColorStop(0.55, '#5e6c7c'); chrome.addColorStop(0.68, '#dfe8e4');
+    chrome.addColorStop(0.82, '#46524e'); chrome.addColorStop(1, '#c8d4dc');
+    g.fillStyle = chrome; g.fillRect(0, 0, LOGO_TRACE.w, LOGO_TRACE.h);
+    for (let i = 0; i < 260; i++) {
+      const y = r() * LOGO_TRACE.h, x = r() * LOGO_TRACE.w;
+      const k = r();
+      g.fillStyle = k < 0.35 ? `rgba(20,28,40,${0.25 + r() * 0.35})` : k < 0.7 ? `rgba(240,248,255,${0.25 + r() * 0.4})` : `rgba(150,200,170,${0.2 + r() * 0.3})`;
+      g.fillRect(x, y, 6 + r() * 40, 1 + r() * 2.5);
+    }
     g.restore();
-    // The "3-D" gunsight at the foot of the V.
-    // Larger, as in the video, overlapping the foot of the V.
-    const cx = 912, cy = 250;
-    g.strokeStyle = '#a8b4c6'; g.lineWidth = 5;
-    g.beginPath(); g.arc(cx, cy, 40, 0, Math.PI * 2); g.stroke();
-    g.lineWidth = 3;
-    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) { g.beginPath(); g.moveTo(cx + dx * 30, cy + dy * 30); g.lineTo(cx + dx * 66, cy + dy * 66); g.stroke(); }
-    g.font = '700 32px "Arial", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillStyle = '#d8e2ee'; g.fillText('3-D', cx, cy + 1);
+    // A dark hairline round the whole silhouette.
+    g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(4,6,12,0.9)'; g.lineWidth = 2.2; g.stroke(outline);
+    // The letter faces: pale blue, a little lighter toward the top, set into the chrome with a
+    // dark groove and a light lip.
+    const face = g.createLinearGradient(0, 30, 30, 230);
+    face.addColorStop(0, '#e2eaff'); face.addColorStop(0.5, '#b6c6f2'); face.addColorStop(1, '#cad6fa');
+    g.fillStyle = face; g.fill(faces, 'evenodd');
+    g.strokeStyle = 'rgba(16,22,40,0.85)'; g.lineWidth = 2.6; g.stroke(faces);
+    g.save(); g.translate(-1.2, -1.2);
+    g.strokeStyle = 'rgba(255,255,255,0.45)'; g.lineWidth = 1.2; g.stroke(faces);
+    g.restore();
+    g.restore();
   });
-  const logo = new THREE.Mesh(new THREE.PlaneGeometry(10.24, 3.2), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
+  // Untone-mapped, so the chrome and the blue faces come out as painted.
+  const logo = new THREE.Mesh(new THREE.PlaneGeometry(10.24, 3.2), new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false }));
   scene.add(logo);
   return { scene, logo };
 }
@@ -2713,6 +2774,7 @@ export function createIntro(renderer) {
     cam.updateMatrixWorld();
     placeMoon(sign.moon, cam, -0.4, -0.4);
     sign.sky.position.copy(cam.position);
+    sign.sky.userData.update(cam, t);
     return { scene: sign.scene, black: 1 - span(t, A(4.5), A(14)) };
   }
 
@@ -2721,11 +2783,12 @@ export function createIntro(renderer) {
     path(cam, T, [[0, [1, 3.0, 12], [-1.5, 1.0, -6], 46], [4.2, [12, 3.0, 12], [9.5, 1.0, -6], 46]], false);
     base.frontLight.intensity = 1.6;
     const px = SET.apron + lerp(-2.5, 24, smooth(span(T, 0.1, 2.9))), pz = 4.8;
-    base.pool.intensity = 25;
+    // Mostly real light, so the sand's bumps show in the pool, with a fainter flat decal.
+    base.pool.intensity = 70;
     base.pool.target.position.set(px, 0, pz);
     base.pool.target.updateMatrixWorld();
     base.poolSpot.position.set(px, 0.03, pz);
-    base.poolSpot.material.opacity = 1;
+    base.poolSpot.material.opacity = 0.4;
     return { scene: night(t) };
   }
 
@@ -2777,14 +2840,13 @@ export function createIntro(renderer) {
   /** Shared state of the night base for this frame. */
   function night(t) {
     base.moon.visible = true;
-    base.moon.userData.halo.visible = true;
     base.outMoon.visible = false;
     base.hemi.intensity = 0.9;
     base.moonLight.intensity = 1.3;
     cam.updateMatrixWorld();
     base.sky.position.copy(cam.position);
     placeMoon(base.moon, cam, t < A(207) ? 0.2 : 0.29, t < A(207) ? -0.3 : 0.2);
-    base.moon.userData.halo.position.x = 0.15 - 0.012 * t;
+    base.sky.userData.update(cam, t);
     const tw = base.moonTower.userData;
     if (t < A(207)) { tw.setBeam(0); tw.spot.intensity = 0; }
     return base.scene;
@@ -3017,7 +3079,7 @@ export function createIntro(renderer) {
     base.moon.visible = true;
     const hp = base.outTower.userData.head.getWorldPosition(V()).project(cam);
     placeMoon(base.moon, cam, (hp.x + 1) / 2 - 0.006, (1 - hp.y) / 2 - 0.006);
-    base.moon.userData.halo.visible = false;
+    base.sky.userData.update(cam, t);
     base.outTower.userData.glow.material.color.setScalar(0.08);
     base.outMoon.visible = true;
     base.outMoon.intensity = 1.8;
@@ -3167,8 +3229,9 @@ export function createIntro(renderer) {
 
   function shotLogo(t) {
     logo.scene.background.setScalar(keyed(t, [[B(860), 1], [B(861), 0.45], [B(863), 0.2], [B(866), 0.05], [B(871), 0]]));
-    // Smaller and a little above centre, as the video frames it.
-    look([0.6, -0.55, 13.8], [0.6, -0.55, 0], 40);
+    // Framed so the traced area lands where it sits in the video frame (x 40-616, y 166-346 of
+    // 640 x 512).
+    look([-0.14, 0, 12.5], [-0.14, 0, 0], 40);
     return { scene: logo.scene, white: 1 - span(t, B(860), B(861.5)), black: span(t, B(937), B(946)) };
   }
 
