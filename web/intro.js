@@ -243,10 +243,10 @@ const fenceTex = canvasTexture(128, 128, (g, w, h) => {
  * so the ends meet seamlessly) is tubed once and instanced over x0..x1, y0..y1.
  */
 function chainLink(x0, x1, y0, y1, mat, { s = 0.17, H = 0.32, r = 0.009 } = {}) {
-  const o = 0.036;      // how far each bend reaches past its neighbour's
-  const d = 0.03;       // fillet length either side of a bend
-  const D = 0.05;       // densely sampled zone round each bend
-  const c = 0.026;      // height over which the wire swaps sides of the plane at a bend
+  const o = 0.02;       // how far each bend reaches past its neighbour's
+  const d = 0.018;      // fillet length either side of a bend (a bend radius of ~1.5 wire radii)
+  const D = 0.04;       // densely sampled zone round each bend
+  const c = 0.016;      // height over which the wire swaps sides of the plane at a bend
   const amp = r * 1.08; // the two wires just touch where they cross
   const P0 = new THREE.Vector2(s / 2, H / 4), C1 = new THREE.Vector2(s + o, 0);
   const C2 = new THREE.Vector2(-o, -H / 2), P3 = new THREE.Vector2(s / 2, -3 * H / 4);
@@ -273,7 +273,7 @@ function chainLink(x0, x1, y0, y1, mat, { s = 0.17, H = 0.32, r = 0.009 } = {}) 
   const point = (l) => { const p = pos2(l); return new THREE.Vector3(p.x, p.y, amp * side(p.y)); };
   // Few samples on the straight runs, many round the bends.
   const breaks = [0, at[1] - D, at[1] + D, at[2] - D, at[2] + D, at[3]];
-  const counts = [2, 18, 3, 18, 2];
+  const counts = [2, 22, 3, 22, 2];
   const ls = [0];
   counts.forEach((n, i) => { for (let k = 1; k <= n; k++) ls.push(lerp(breaks[i], breaks[i + 1], k / n)); });
   const radial = 7;
@@ -608,12 +608,31 @@ function makeHeli({ color = 0x6c727a, skin = '#8a9098', roughness = 0.42, metaln
   const canopy = [fuselage[1], fuselage[2], box(1.0, 1.02, -0.98, 0.98)];
   const glass = new THREE.Mesh(loft(canopy.map((c) => ({ ...c, w: c.w * 1.02, h: c.h * 1.02, bot: 0.02 })), 40), gm);
   g.add(glass);
-  // Frame bars: the windscreen's top edge and the posts between windscreen and side windows.
+  // Frame: posts between the side windows, and a pillar down each side of the sloped
+  // windscreen (like a car's A-pillars), running along the glass's rounded corner from the
+  // nose (z = 3.0) up to the roof (z = 1.9).
   const frameMat = dark;
-  for (const [x, y, z, bw, bh, bd] of [[0, 0.98, 1.9, 2.08, 0.05, 0.07], [-1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [-1.03, 0.47, 1.0, 0.05, 0.98, 0.07], [1.03, 0.47, 1.0, 0.05, 0.98, 0.07]]) {
+  for (const [x, y, z, bw, bh, bd] of [[-1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [1.03, 0.47, 1.9, 0.05, 0.98, 0.07], [-1.03, 0.47, 1.0, 0.05, 0.98, 0.07], [1.03, 0.47, 1.0, 0.05, 0.98, 0.07]]) {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), frameMat);
     bar.position.set(x, y, z);
     g.add(bar);
+  }
+  {
+    // A point on a glass section's corner, at angle a round the superellipse, just proud of it.
+    const corner = (c, a, side) => {
+      const e = 2 / c.n, w = c.w * 1.02, h = c.h * 1.02;
+      return V(side * Math.cos(a) ** e * w * 1.015, c.y + Math.sin(a) ** e * h * 1.015, c.z);
+    };
+    for (const side of [-1, 1]) {
+      const p0 = corner(canopy[0], Math.PI / 4, side), p1 = corner(canopy[1], Math.PI / 4, side);
+      const len = p0.distanceTo(p1);
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, len + 0.06), frameMat);
+      pillar.position.copy(p0).add(p1).multiplyScalar(0.5);
+      pillar.quaternion.setFromUnitVectors(V(0, 0, 1), p1.clone().sub(p0).normalize());
+      // Roll it so its flat face lies along the corner's 45-degree bevel.
+      pillar.rotateZ(-side * Math.PI / 4);
+      g.add(pillar);
+    }
   }
   // Engine cowl and exhausts.
   const cowl = new THREE.Mesh(loft([
@@ -834,9 +853,11 @@ function makeJet() {
     w.rotation.x = Math.PI / 2;
     w.position.set(s * 1.3, 0, -0.6);
     g.add(w);
-    const tip = navLight(s < 0 ? 0xff2a1a : 0x22ff55, 0.07);
-    tip.position.set(s * 6.72, 0, -2.4);
-    g.add(tip);
+    if (s < 0) {
+      const tip = navLight(0xff2a1a, 0.07);
+      tip.position.set(s * 6.72, 0, -2.4);
+      g.add(tip);
+    }
     const st = new THREE.Mesh(plate([[0, 0.4], [2.3, -0.8], [2.3, -1.4], [0, -1.5]].map(([x, y]) => [x * s, y]), 0.08, 0.02), m);
     st.rotation.x = Math.PI / 2;
     st.position.set(s * 1.3, -0.05, -3.8);
@@ -2240,10 +2261,16 @@ export function createIntro(renderer) {
   // ---------------------------------------------------------------- INTRO2: inside
   function hallState(t) {
     const h = hall;
-    h.key.intensity = 34;
+    // The hall opens nearly black: the ridge panels glow but throw little light. Each bank of
+    // wall uplights that comes on brings the room (and the gunship) up with it.
+    const lvl = (t >= LEFT_ON ? 0.5 : 0) + (t >= RIGHT_ON ? 0.5 : 0);
+    h.key.intensity = lerp(0.8, 34, lvl);
+    h.ambient.intensity = lerp(0.04, 0.25, lvl);
+    // Reflections too: the environment map's bright wall strips are the uplights.
+    h.scene.environmentIntensity = lerp(0.1, 0.7, lvl);
     h.pedestal.forEach((m) => { m.visible = true; });
     h.clamps.forEach((c) => { c.visible = true; });
-    h.ridgeLights.forEach((l) => { l.intensity = 16; });
+    h.ridgeLights.forEach((l) => { l.intensity = lerp(1.5, 16, lvl); });
     for (const [s, at] of [[-1, LEFT_ON], [1, RIGHT_ON]]) {
       const on = t >= at ? 1 : 0;
       h.uplights[s].wash.opacity = on;
