@@ -1011,54 +1011,170 @@ function makeTower() {
   return g;
 }
 
-/** A military truck: bonneted cab with windscreen, grille and mirrors, and either a ribbed
- *  canvas tilt or a fuel tank on the back. +z forward. */
+/** A cross-section with vertical sides and a rounded top: half width w, from y0 up to y1,
+ *  shoulder radius r. */
+function roundTop(w, y0, y1, r) {
+  const sh = new THREE.Shape();
+  sh.moveTo(-w, y0);
+  sh.lineTo(w, y0);
+  sh.absarc(w - r, y1 - r, r, 0, Math.PI / 2, false);
+  sh.absarc(-w + r, y1 - r, r, Math.PI / 2, Math.PI, false);
+  sh.closePath();
+  return sh;
+}
+
+/** Extrude a Shape along +z from z0 to z1 with its edges rounded off by `b` (the outline grows
+ *  by b too), then smooth the normals across the curves so it doesn't shade faceted. */
+function extrudeZ(sh, z0, z1, b, curveSegments = 10) {
+  const g = new THREE.ExtrudeGeometry(sh, { depth: z1 - z0 - 2 * b, bevelEnabled: b > 0, bevelThickness: b, bevelSize: b, bevelSegments: 3, curveSegments });
+  g.translate(0, 0, z0 + b);
+  return smoothNormals(g);
+}
+
+/**
+ * Vertex normals for a non-indexed geometry, averaged over the faces that meet at each point
+ * unless they fold by more than `crease` radians, so curves shade smooth and edges stay crisp.
+ */
+function smoothNormals(geo, crease = 0.7) {
+  const p = geo.attributes.position, n = p.count;
+  const fn = new Float32Array(n * 3);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < n; i += 3) {
+    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+    c.sub(b); a.sub(b); c.cross(a);
+    const area = c.length();
+    if (area > 0) c.divideScalar(area);
+    for (let k = 0; k < 3; k++) fn.set([c.x * area, c.y * area, c.z * area], (i + k) * 3);
+  }
+  const at = new Map();
+  const key = (i) => `${Math.round(p.getX(i) * 1e4)},${Math.round(p.getY(i) * 1e4)},${Math.round(p.getZ(i) * 1e4)}`;
+  for (let i = 0; i < n; i++) { const k = key(i); if (!at.has(k)) at.set(k, []); at.get(k).push(i); }
+  const out = new Float32Array(n * 3), cos = Math.cos(crease);
+  const u = new THREE.Vector3(), v = new THREE.Vector3(), sum = new THREE.Vector3();
+  for (const list of at.values()) {
+    for (const i of list) {
+      u.fromArray(fn, i * 3).normalize();
+      sum.set(0, 0, 0);
+      for (const j of list) if (v.fromArray(fn, j * 3).normalize().dot(u) > cos) sum.add(v.fromArray(fn, j * 3));
+      sum.normalize().toArray(out, i * 3);
+    }
+  }
+  geo.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+  return geo;
+}
+
+/** A flat Shape with its UVs stretched over its bounding box (ShapeGeometry uses raw x, y). */
+function shapeFill(sh, curveSegments = 8) {
+  const g = new THREE.ShapeGeometry(sh, curveSegments);
+  g.computeBoundingBox();
+  const { min, max } = g.boundingBox, uv = g.attributes.uv, p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getX(i) - min.x) / (max.x - min.x), (p.getY(i) - min.y) / (max.y - min.y));
+  return g;
+}
+
+/** A military truck after INTRO1's 1940s six-wheelers: a narrow bonnet with rounded shoulders
+ *  and a grille, flowing front mudguards that run back into the running boards, a round-roofed
+ *  cab with a split windscreen, headlamps on the wings, and either a ribbed canvas tilt or a fuel
+ *  tank on the back. +z forward. */
 function makeTruck(kind = 'troop') {
   const g = new THREE.Group();
   const olive = new THREE.MeshStandardMaterial({ color: 0x3b4030, map: panelTexture('#6b7058', { cols: 3, rows: 2, line: 'rgba(0,0,0,0.35)' }), roughness: 0.8, metalness: 0.2 });
+  // The extruded body panels carry world-unit UVs, so their skin tiles instead of stretching.
+  const body = new THREE.MeshStandardMaterial({ color: 0x3b4030, map: panelTexture('#6b7058', { cols: 2, rows: 2, line: 'rgba(0,0,0,0.25)', repeat: [0.45, 0.45] }), roughness: 0.75, metalness: 0.25 });
   const dark = metal(0x161616, 0.8, 0.3);
   const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 6.6), dark);
   chassis.position.set(0, 0.75, 0);
   g.add(chassis);
-  const bonnet = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.85, 1.3), olive);
-  bonnet.position.set(0, 1.3, 2.75);
-  g.add(bonnet);
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.5, 1.5), olive);
-  cab.position.set(0, 1.85, 1.45);
-  g.add(cab);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.6), glassMat());
-  screen.position.set(0, 2.15, 2.21);
-  g.add(screen);
-  for (const s of [-1, 1]) {
-    const side = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.55), glassMat());
-    side.rotation.y = s * Math.PI / 2;
-    side.position.set(s * 1.11, 2.15, 1.5);
-    g.add(side);
-    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.35, 0.22), dark);
-    mirror.position.set(s * 1.3, 2.2, 2.15);
-    g.add(mirror);
-    const guard = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.45, 14, 1, true, 0, Math.PI), olive);
-    guard.rotation.z = Math.PI / 2;
-    guard.position.set(s * 1.0, 0.55, 2.4);
-    g.add(guard);
+
+  // Bonnet: vertical sides rolling over into a flat top, narrowing and dropping a touch toward
+  // the grille.
+  const HZ0 = 2.1, HZ1 = 3.42;
+  const bonnetGeo = extrudeZ(roundTop(0.6, 0.95, 1.72, 0.3), HZ0, HZ1, 0.035);
+  const bp = bonnetGeo.attributes.position;
+  for (let i = 0; i < bp.count; i++) {
+    const k = clamp01((bp.getZ(i) - HZ0) / (HZ1 - HZ0));
+    const y = bp.getY(i);
+    bp.setXY(i, bp.getX(i) * (1 - 0.07 * k), y - 0.07 * k * clamp01((y - 0.95) / 0.8));
   }
-  const grille = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.6), new THREE.MeshStandardMaterial({ map: canvasTexture(32, 32, (c, w, h) => {
+  g.add(new THREE.Mesh(bonnetGeo, body));
+  const seam = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.025, HZ1 - HZ0 - 0.05), dark);
+  seam.position.set(0, 1.735, (HZ0 + HZ1) / 2);
+  seam.rotation.x = 0.053;
+  g.add(seam);
+  const grille = new THREE.Mesh(shapeFill(roundTop(0.44, 1.0, 1.58, 0.2)), new THREE.MeshStandardMaterial({ map: canvasTexture(32, 32, (c, w, h) => {
     c.fillStyle = '#111'; c.fillRect(0, 0, w, h);
     c.fillStyle = '#3a3e30'; for (let x = 1; x < w; x += 4) c.fillRect(x, 0, 2, h);
   }), roughness: 0.9 }));
-  grille.position.set(0, 1.3, 3.41);
+  grille.position.z = HZ1 + 0.004;
   g.add(grille);
-  const bumper = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.22, 0.2), dark);
-  bumper.position.set(0, 0.75, 3.5);
-  g.add(bumper);
-  for (const x of [-0.75, 0.75]) {
-    const hl = new THREE.Mesh(new THREE.CircleGeometry(0.15, 12), new THREE.MeshBasicMaterial({ color: 0xfff6d0 }));
-    hl.position.set(x, 1.45, 3.42);
-    g.add(hl);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 6, 12), dark);
-    rim.position.copy(hl.position);
-    g.add(rim);
+
+  // Cab: round-shouldered roof, split windscreen, side windows, mirrors on arms.
+  g.add(new THREE.Mesh(extrudeZ(roundTop(1.0, 1.0, 2.7, 0.34), 0.72, HZ0, 0.06), body));
+  for (const s of [-1, 1]) {
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.84, 0.56), glassMat());
+    screen.position.set(s * 0.48, 2.2, HZ0 + 0.004);
+    g.add(screen);
+    const side = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.52), glassMat());
+    side.rotation.y = s * Math.PI / 2;
+    side.position.set(s * 1.064, 2.2, 1.6);
+    g.add(side);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.03), dark);
+    arm.position.set(s * 1.2, 2.05, 2.0);
+    g.add(arm);
+    const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.35, 0.22), dark);
+    mirror.position.set(s * 1.36, 2.2, 2.0);
+    g.add(mirror);
+    // Hood louvres down each side.
+    for (let k = 0; k < 5; k++) {
+      const z = 2.4 + k * 0.13;
+      const kz = (z - HZ0) / (HZ1 - HZ0);
+      const slot = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.26, 0.04), dark);
+      slot.position.set(s * (0.635 * (1 - 0.07 * kz) + 0.002), 1.3, z);
+      g.add(slot);
+    }
+
+    // Front wing: crowned sheet that sweeps up over the wheel and down in front of it, and back
+    // into the running board under the cab door. Drawn side-on (u = z, v = y), extruded across x.
+    const wing = new THREE.Shape();
+    const arc = (r, a0, a1, n = 14) => Array.from({ length: n + 1 }, (_, i) => {
+      const a = lerp(a0, a1, i / n);
+      return [2.4 + r * Math.cos(a), 0.55 + r * Math.sin(a)];
+    });
+    const outer = arc(0.74, Math.PI * 5 / 6, 0.12), inner = arc(0.63, 0.12, Math.PI * 5 / 6);
+    wing.moveTo(0.5, 0.92);
+    wing.lineTo(outer[0][0] - 0.06, 0.92);
+    for (const [u, v] of outer) wing.lineTo(u, v);
+    for (const [u, v] of inner) wing.lineTo(u, v);
+    wing.lineTo(outer[0][0] - 0.1, 0.84);
+    wing.lineTo(0.5, 0.84);
+    wing.closePath();
+    const wingGeo = smoothNormals(new THREE.ExtrudeGeometry(wing, { depth: 0.46, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.035, bevelSegments: 3 }));
+    wingGeo.translate(0, 0, -0.23);
+    const wingMesh = new THREE.Mesh(wingGeo, body);
+    wingMesh.rotation.y = -Math.PI / 2;
+    wingMesh.position.x = s * 0.96;
+    g.add(wingMesh);
+
+    // Headlamp in a deep bowl on a stalk, sitting on the wing beside the bonnet.
+    const lamp = new THREE.Group();
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.2, 14), dark);
+    bowl.rotation.x = Math.PI / 2;
+    lamp.add(bowl);
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.12, 14), new THREE.MeshBasicMaterial({ color: 0xfff6d0 }));
+    lens.position.z = 0.101;
+    lamp.add(lens);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.025, 6, 14), dark);
+    rim.position.z = 0.1;
+    lamp.add(rim);
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.22), dark);
+    stalk.position.y = -0.18;
+    lamp.add(stalk);
+    lamp.position.set(s * 0.86, 1.36, 3.0);
+    g.add(lamp);
   }
+  const bumper = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.2, 0.18), dark);
+  bumper.position.set(0, 0.66, 3.5);
+  g.add(bumper);
   if (kind === 'tanker') {
     const tank = new THREE.Mesh(loft([
       { z: 0.6, w: 1.0, h: 0.85, n: 2.6 }, { z: 0.55, w: 1.08, h: 0.92, n: 2.6 },
