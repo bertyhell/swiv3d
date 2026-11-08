@@ -99,7 +99,11 @@ fn pickups_are_winched_aboard_and_weigh_the_craft_down() {
     let mut w = World::new(&l);
     for e in w.entities.iter().filter(|e| e.brain == Brain::Pickup) {
         // Platforms rest on the highest ground they cover, so slopes never swallow them.
-        assert!(e.pos[1] + e.y_min >= w.terrain.height(e.pos[0], e.pos[2]), "platform sunk into the ground");
+        // The pads are flat quads: check the visible terrain mesh across their whole span.
+        let r = 35 << 8;
+        for (dx, dz) in [(0, 0), (-r, -r), (r, -r), (-r, r), (r, r), (0, r), (r, 0), (0, -r), (-r, 0)] {
+            assert!(e.pos[1] + e.y_min > w.terrain.mesh_height(e.pos[0] + dx, e.pos[2] + dz), "platform sunk into the ground");
+        }
         assert!(e.item_pos[1] > e.pos[1], "collectable floats above its platform");
     }
     let i = w.entities.iter().position(|e| e.brain == Brain::Pickup && e.pickup == 0).expect("a Missiles pickup");

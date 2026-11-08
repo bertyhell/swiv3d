@@ -273,14 +273,18 @@ impl Game {
         w.instances(&mut self.instances);
         let beams = w.beams();
         if w.phase == Phase::Playing {
-            if let Some(pl) = self.instances.iter_mut().find(|i| i.model == swiv_core::world::PLAYER_MODEL) {
+            if let Some(k) = self.instances.iter().position(|i| i.model == swiv_core::world::PLAYER_MODEL) {
+                let pl = &mut self.instances[k];
                 pl.pos = p;
                 pl.yaw = yaw.round() as i32;
-            }
-            // The shield rides with the craft: draw it at the same interpolated position,
-            // or it lags a tick behind and jitters while moving.
-            for s in self.instances.iter_mut().filter(|i| i.model == swiv_core::world::SHIELD_MODEL) {
-                s.pos = p;
+                // The craft's shield (pushed right after it) rides along at the same
+                // interpolated position, or it lags a tick behind and jitters. Shield pickups
+                // use the same model, so only this one instance is moved.
+                if w.shield > 0 {
+                    if let Some(s) = self.instances.get_mut(k + 1).filter(|i| i.model == swiv_core::world::SHIELD_MODEL) {
+                        s.pos = p;
+                    }
+                }
             }
         }
         let now = self.time;
@@ -291,8 +295,10 @@ impl Game {
     }
 
     /// A still of the level around map cell `(x, z)` for the mission briefing's close-ups,
-    /// drawn into the canvas at `w` x `h` pixels: the ground there seen from above and behind,
-    /// facing the craft's start heading, like the original's pre-rendered briefing shots.
+    /// drawn into the canvas at `w` x `h` pixels: the ground there seen from above, like the
+    /// original's pre-rendered briefing shots. The heading is picked to frame the houses and
+    /// trees around the place, looking at the houses' walls at a slant rather than square on.
+    /// The craft itself is left out.
     /// `range` scales the camera's distance (1 frames a base; the start uses less, to show the craft).
     /// The caller copies the canvas out (drawImage) before yielding to the browser.
     pub fn snapshot(&mut self, x: f32, z: f32, w: u32, h: u32, range: f32) {
@@ -304,9 +310,16 @@ impl Game {
         }
         let target = [(x * 16384.0) as i32, 0, (z * 16384.0) as i32];
         let ground = world.terrain.height(target[0], target[2]);
-        let yaw = world.player.yaw as f32;
-        let a = yaw * std::f32::consts::TAU / 512.0;
+        // Pull back (up to a base's framing) until some houses or trees come into the picture.
+        let mut range = range;
+        let (mut score, mut yaw) = snapshot_yaw(world, target, 560.0 * 256.0 * range, world.player.yaw);
+        while score < 1.5 && range < 1.0 {
+            range = (range * 1.3).min(1.0);
+            (score, yaw) = snapshot_yaw(world, target, 560.0 * 256.0 * range, world.player.yaw);
+        }
         let (back, up) = (560.0 * 256.0 * range, 330.0 * 256.0 * range);
+        let yaw = yaw as f32;
+        let a = yaw * std::f32::consts::TAU / 512.0;
         let mut cam_pos = [target[0] - (a.sin() * back) as i32, ground + up as i32, target[2] - (a.cos() * back) as i32];
         // Rise until the view of the place clears the ground in between.
         for k in 0..=12 {
@@ -322,6 +335,7 @@ impl Game {
         let pitch = ((cam_pos[1] - ground) as f32).atan2(back);
         let cam = Camera { pos: cam_pos, yaw, pitch, fov: 0.95 };
         world.instances(&mut self.instances);
+        self.instances.retain(|i| i.model != swiv_core::world::PLAYER_MODEL && i.model != swiv_core::world::SHIELD_MODEL);
         self.renderer.render(w as i32, h as i32, &cam, &self.instances, &[], &[], None, self.time as f32, self.fog_far);
     }
 
@@ -440,6 +454,48 @@ impl Game {
 }
 
 /// Sound effects inside SOUNDS.BD as [effect id, byte offset, byte length] triples.
+/// Heading (0..512) for a briefing still of `target` taken from `back` world units behind
+/// it: the one that gets the most houses and trees in frame, favouring a slanted view of the
+/// house walls (45 degrees off them looks best, square on looks flat). `fallback` breaks ties.
+/// Returns (score, heading).
+fn snapshot_yaw(world: &World, target: [i32; 3], back: f32, fallback: i32) -> (f32, i32) {
+    // Half the horizontal view angle, a little inside the frame edge.
+    const HALF_FOV_TAN: f32 = 0.42;
+    let mut best = (f32::MIN, fallback);
+    for k in 0..64 {
+        let yaw = (fallback + k * 8) & trig::ANGLE_MASK;
+        let a = yaw as f32 * std::f32::consts::TAU / 512.0;
+        let dir = [a.sin(), a.cos()];
+        let cam = [target[0] as f32 - dir[0] * back, target[2] as f32 - dir[1] * back];
+        let mut score = 0.0;
+        for e in world.entities.iter().filter(|e| e.alive && (2000..=2004).contains(&e.class)) {
+            let rel = [wrap(e.pos[0] - cam[0] as i32) as f32, wrap(e.pos[2] - cam[1] as i32) as f32];
+            let fwd = rel[0] * dir[0] + rel[1] * dir[1];
+            let side = rel[0] * dir[1] - rel[1] * dir[0];
+            // In frame: ahead of the camera, not too far past the target, inside the view cone.
+            if fwd < back * 0.35 || fwd > back * 1.7 || side.abs() > fwd * HALF_FOV_TAN {
+                continue;
+            }
+            // Things near the middle of the picture count most.
+            let centre = 1.0 - (side.abs() / (fwd * HALF_FOV_TAN)) * 0.5 - ((fwd - back) / back).abs() * 0.4;
+            let tree = matches!(e.class, 2002 | 2003);
+            let weight = if tree {
+                1.0
+            } else {
+                // 0 when looking straight at a wall, 1 at 45 degrees to the walls.
+                let off = (yaw - e.yaw).rem_euclid(128);
+                let slant = 1.0 - (off - 64).abs() as f32 / 64.0;
+                1.0 + 2.0 * slant
+            };
+            score += weight * centre;
+        }
+        if score > best.0 + 1e-3 {
+            best = (score, yaw);
+        }
+    }
+    best
+}
+
 #[wasm_bindgen]
 pub fn sound_offsets(data: &[u8]) -> Vec<u32> {
     swiv_formats::sounds::split(data).iter().flat_map(|s| [s.effect, s.offset as u32, s.riff.len() as u32]).collect()

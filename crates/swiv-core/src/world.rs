@@ -54,6 +54,8 @@ const PICKUP_HEALTH_MEGA: i32 = 102;
 const PICKUP_SHIELD: i32 = 107;
 /// The shield orbits the craft until it has soaked up this much health damage.
 const SHIELD_DAMAGE: i32 = 25;
+/// Lift of the flat pickup pads above the ground under them, against z-fighting.
+const PAD_CLEARANCE: i32 = 3 << MODEL_SHIFT;
 pub const SHIELD_MODEL: i32 = 853;
 const PICKUP_POWER_UP: std::ops::RangeInclusive<i32> = 110..=113;
 /// The gun fires in bursts of two pulses, "one, two, pause": `PULSE_GAP` ticks between the
@@ -111,6 +113,22 @@ impl Terrain {
         let top = h00 + (((h10 - h00) * fx) >> 8);
         let bot = h01 + (((h11 - h01) * fx) >> 8);
         top + (((bot - top) * fz) >> 8)
+    }
+
+    /// Height of the terrain as the renderer draws it: two flat triangles per cell, split
+    /// along the (cx+1, cz)-(cx, cz+1) diagonal. Differs from the bilinear `height` inside
+    /// a cell, which matters for anything that must sit exactly on the visible surface.
+    pub fn mesh_height(&self, x: i32, z: i32) -> i32 {
+        let (cx, cz) = (x >> CELL_SHIFT, z >> CELL_SHIFT);
+        let (fx, fz) = ((x >> 6) & 0xff, (z >> 6) & 0xff);
+        let h = |dx: i32, dz: i32| (Level::cell(&self.hmap, cx + dx, cz + dz) as i32) << HEIGHT_SHIFT;
+        if fx + fz <= 256 {
+            let h00 = h(0, 0);
+            h00 + (((h(1, 0) - h00) * fx + (h(0, 1) - h00) * fz) >> 8)
+        } else {
+            let h11 = h(1, 1);
+            h11 + (((h(0, 1) - h11) * (256 - fx) + (h(1, 0) - h11) * (256 - fz)) >> 8)
+        }
     }
 
     pub fn is_water(&self, x: i32, z: i32) -> bool {
@@ -280,6 +298,8 @@ pub struct World {
     pub model_info: std::collections::HashMap<i32, (i32, i32)>,
     /// Highest vertex of each model (world units), to stand collectables on their platforms.
     model_top: std::collections::HashMap<i32, i32>,
+    /// Horizontal half-extents (x, z) of each model (world units), for footprints.
+    model_half: std::collections::HashMap<i32, (i32, i32)>,
     pub entities: Vec<Entity>,
     pub projectiles: Vec<Projectile>,
     pub effects: Vec<Effect>,
@@ -404,11 +424,20 @@ impl World {
             .iter()
             .map(|(&id, m)| (id as i32 - 10000, m.vertices.iter().map(|v| v.pos[1]).max().unwrap_or(0) << MODEL_SHIFT))
             .collect();
+        let model_half = level
+            .models
+            .iter()
+            .map(|(&id, m)| {
+                let half = |k: usize| m.vertices.iter().map(|v| v.pos[k].abs()).max().unwrap_or(0) << MODEL_SHIFT;
+                (id as i32 - 10000, (half(0), half(2)))
+            })
+            .collect();
         let mut w = World {
             terrain,
             debris: level.debris.clone(),
             model_info,
             model_top,
+            model_half,
             entities: Vec::new(),
             projectiles: Vec::new(),
             effects: Vec::new(),
@@ -475,9 +504,10 @@ impl World {
         };
         let ground = match brain {
             Brain::Boat => self.terrain.height(x, z).max(0),
-            // Pickup platforms are flat pads: rest them on the highest ground they cover so
-            // they never sink into a slope.
-            Brain::Pickup => self.footprint_height(x, z, radius),
+            // Pickup platforms are flat, zero-thickness pads: rest them on the highest visible
+            // ground they cover so they never sink into a slope, plus a hair of clearance so
+            // they don't z-fight with the terrain where it is flat.
+            Brain::Pickup => self.footprint_height(x, z, s.model, yaw) + PAD_CLEARANCE,
             _ => self.terrain.height(x, z),
         };
         let fly = matches!(brain, Brain::Aircraft | Brain::Drone);
@@ -524,17 +554,20 @@ impl World {
         });
     }
 
-    /// Highest terrain under a disc of `radius` (centre plus eight points on the rim).
-    fn footprint_height(&self, x: i32, z: i32, radius: i32) -> i32 {
-        // Sample a grid over the whole square footprint (half a terrain cell apart) so a
-        // ridge or bump under the middle of the pad is caught, not just the rim.
-        const STEP: i32 = 1 << 13;
-        let n = (radius / STEP).max(1);
-        let step = radius / n;
-        let mut h = self.terrain.height(x, z);
-        for i in -n..=n {
-            for j in -n..=n {
-                h = h.max(self.terrain.height(x + i * step, z + j * step));
+    /// Highest rendered terrain under a model's (rotated) horizontal footprint.
+    fn footprint_height(&self, x: i32, z: i32, model: i32, yaw: i32) -> i32 {
+        // The terrain mesh is flat triangles a cell wide, so a grid an eighth of a cell apart
+        // misses a peak by at most an eighth of a cell's rise, which the clearance covers.
+        const STEP: i32 = 1 << (CELL_SHIFT - 3);
+        let (hx, hz) = self.model_half.get(&model).copied().unwrap_or((self.info(model).0, self.info(model).0));
+        let (nx, nz) = ((hx + STEP - 1) / STEP, (hz + STEP - 1) / STEP);
+        let (s, c) = (sin(yaw), cos(yaw));
+        let mut h = self.terrain.mesh_height(x, z);
+        for i in -nx..=nx {
+            for j in -nz..=nz {
+                let (lx, lz) = ((i * hx) / nx.max(1), (j * hz) / nz.max(1));
+                let (wx, wz) = (x + ((lx * c + lz * s) >> 8), z + ((lz * c - lx * s) >> 8));
+                h = h.max(self.terrain.mesh_height(wx, wz));
             }
         }
         h
@@ -1474,7 +1507,8 @@ impl World {
             });
             if self.shield > 0 {
                 // The shield model is already a ring of pods around its origin: centre it on
-                // the craft and spin it in place.
+                // the craft and spin it in place. Keep it right after the craft: the front end
+                // finds it there to move it with the craft's interpolated position.
                 out.push(mk(SHIELD_MODEL, self.player.pos, self.shield_angle, 256, false));
             }
         }
