@@ -299,6 +299,35 @@ const rustSkinTex = canvasTexture(256, 256, (g, w, h) => {
 });
 
 /**
+ * The sign's black printing: KEEP OUT and the six hazard symbols. `ink` paints the print and
+ * `field` the knocked-out parts inside the disc icons, so the same layout serves the colour
+ * texture and the height map.
+ */
+function drawSignInk(g, w, h, ink, field) {
+  g.fillStyle = ink; g.strokeStyle = ink;
+  g.font = '900 136px "Arial Black", Impact, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.save(); g.scale(0.66, 1.08); g.fillText('KEEP OUT', w / 2 / 0.66, h * 0.5 / 1.08); g.restore();
+  const icon = (kind) => {
+    g.save(); g.lineWidth = 7;
+    if (kind === 'man' || kind === 'mask') { g.beginPath(); g.arc(0, 0, 54, 0, Math.PI * 2); g.fill(); }
+    if (kind === 'rad' || kind === 'bio') {
+      g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(0, -62); g.lineTo(62, 0); g.lineTo(0, 62); g.lineTo(-62, 0); g.closePath(); g.stroke();
+    }
+    // Pictogram size in px; the disc icons are knocked out of the ink in sign colour.
+    const size = { man: 80, mask: 76, rad: 64, bio: 62, flame: 100, blast: 100 }[kind];
+    g.fillStyle = kind === 'man' || kind === 'mask' ? field : ink;
+    g.translate(-size / 2, -size / 2); g.scale(size / 512, size / 512);
+    g.fill(new Path2D(SIGN_ICONS[kind]));
+    g.restore();
+  };
+  for (const [x, y, k] of [[100, 96, 'man'], [256, 96, 'flame'], [412, 96, 'rad'], [100, 380, 'bio'], [256, 380, 'blast'], [412, 380, 'mask']]) {
+    g.save(); g.translate(x, y); g.scale(1.22, 1.22); icon(k); g.restore();
+  }
+}
+
+/**
  * The KEEP OUT sign: yellow-green enamel gone blotchy with dirt (dark olive clouds, rust
  * drips from the top edge, grime collecting in the corners), black lettering and six hazard
  * symbols, in the original's arrangement: suited figure, flame, radiation / biohazard,
@@ -338,28 +367,7 @@ const signTex = canvasTexture(512, 480, (g, w, h) => {
   g.fillStyle = edge; g.fillRect(0, 0, w, h);
   g.restore();
 
-  const ink = 'rgba(14,16,6,0.94)';
-  g.fillStyle = ink; g.strokeStyle = ink;
-  g.font = '900 136px "Arial Black", Impact, sans-serif';
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.save(); g.scale(0.66, 1.08); g.fillText('KEEP OUT', w / 2 / 0.66, h * 0.5 / 1.08); g.restore();
-  const icon = (cx, cy, kind) => {
-    g.save(); g.translate(cx, cy); g.lineWidth = 7;
-    if (kind === 'man' || kind === 'mask') { g.beginPath(); g.arc(0, 0, 54, 0, Math.PI * 2); g.fill(); }
-    if (kind === 'rad' || kind === 'bio') {
-      g.lineJoin = 'round';
-      g.beginPath(); g.moveTo(0, -62); g.lineTo(62, 0); g.lineTo(0, 62); g.lineTo(-62, 0); g.closePath(); g.stroke();
-    }
-    // Pictogram size in px; the disc icons are knocked out of the ink in sign colour.
-    const size = { man: 80, mask: 76, rad: 64, bio: 62, flame: 100, blast: 100 }[kind];
-    g.fillStyle = kind === 'man' || kind === 'mask' ? '#b4c21e' : ink;
-    g.translate(-size / 2, -size / 2); g.scale(size / 512, size / 512);
-    g.fill(new Path2D(SIGN_ICONS[kind]));
-    g.restore();
-  };
-  for (const [x, y, k] of [[100, 96, 'man'], [256, 96, 'flame'], [412, 96, 'rad'], [100, 380, 'bio'], [256, 380, 'blast'], [412, 380, 'mask']]) {
-    g.save(); g.translate(x, y); g.scale(1.22, 1.22); icon(0, 0, k); g.restore();
-  }
+  drawSignInk(g, w, h, 'rgba(14,16,6,0.94)', '#b4c21e');
   // A last wash of dirt over the ink, so the lettering is stained too.
   for (let i = 0; i < 30; i++) {
     const x = r() * w, y = r() * h, rad = 15 + r() * 50;
@@ -368,6 +376,28 @@ const signTex = canvasTexture(512, 480, (g, w, h) => {
     g.fillStyle = grd; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
   }
 });
+
+/**
+ * Height map for the KEEP OUT sign, like the original's pressed-steel sign: the black rim and
+ * the printed lettering and symbols stand slightly proud, the yellow field sits recessed.
+ * Drawn sharp, then blurred a touch so the steps have a rounded pressing edge.
+ */
+const signBumpTex = canvasTexture(512, 480, (g, w, h) => {
+  const flat = document.createElement('canvas');
+  flat.width = w; flat.height = h;
+  const f = flat.getContext('2d');
+  const hi = '#fff', lo = '#000';
+  f.fillStyle = hi; f.fillRect(0, 0, w, h);
+  f.save();
+  f.beginPath(); f.roundRect(10, 10, w - 20, h - 20, 22); f.clip();
+  f.fillStyle = lo; f.fillRect(0, 0, w, h);
+  f.restore();
+  drawSignInk(f, w, h, hi, lo);
+  g.fillStyle = hi; g.fillRect(0, 0, w, h);
+  g.filter = 'blur(1.5px)';
+  g.drawImage(flat, 0, 0);
+  g.filter = 'none';
+}, { srgb: false });
 
 /** Broken cloud lit violet by the moon, on black (drawn additively), tiling. */
 const cloudTex = canvasTexture(512, 512, (g, w, h) => {
@@ -1294,7 +1324,7 @@ function signSet() {
   const board = new THREE.Mesh(new THREE.BoxGeometry(1.29, 1.16, 0.035), metal(0x0e0f0a, 0.8, 0.3));
   board.position.set(0, 1.62, 0.03);
   scene.add(board);
-  const signMat = new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.62, metalness: 0.15 });
+  const signMat = new THREE.MeshStandardMaterial({ map: signTex, bumpMap: signBumpTex, bumpScale: 3, roughness: 0.62, metalness: 0.15 });
   // Old enamelled steel: bowed, with a bent corner and a scatter of dents and knocks.
   const signGeo = new THREE.PlaneGeometry(1.25, 1.12, 50, 45);
   {
@@ -1426,10 +1456,11 @@ function baseSet() {
   block.scale.set(2.2, 0.85, 1);
   at(makeWall(160), M, 0, -55);
   const moonTanker = at(makeTruck('tanker'), M + 14, 0, -6, -Math.PI / 2 - 0.4);
-  // The searchlight's beam is a long additive cone from the tower's lamp head.
+  // The searchlight's beam is a long additive frustum from the tower's lamp head: it starts
+  // as wide as the lens (radius 0.4) rather than at a point, and spreads out from there.
   const tw = moonTower.userData;
   tw.beam.material = additive(beamTex, 0xdfe6ff, 0);
-  tw.beam.geometry = new THREE.ConeGeometry(5.5, 90, 24, 1, true);
+  tw.beam.geometry = new THREE.CylinderGeometry(0.4, 5.5, 90, 24, 1, true);
   tw.beam.position.z = 45.3;
 
   // Outside the hangar for the breakout.
@@ -2099,16 +2130,20 @@ export function createIntro(renderer) {
     const k = span(t, A(250), A(300));
     base.moonTanker.position.set(X + lerp(10, 6.5, k), 0, lerp(-8, -2, k));
     base.moonTanker.rotation.y = -0.55;
-    base.frontLight.intensity = 0.9;
-    base.hemi.intensity = 1.4;
     base.pool.intensity = 0;
     base.poolSpot.material.opacity = 0;
-    return { scene: night(t), black: span(t, A(298), A(310)) };
+    const scene = night(t);
+    // A darker night than the other base shots, so the searchlight carries the frame.
+    base.frontLight.intensity = 0.35;
+    base.hemi.intensity = 0.35;
+    base.moonLight.intensity = 0.6;
+    return { scene, black: span(t, A(298), A(310)) };
   }
 
   /** Shared state of the night base for this frame. */
   function night(t) {
     base.hemi.intensity = 0.9;
+    base.moonLight.intensity = 1.3;
     cam.updateMatrixWorld();
     base.sky.position.copy(cam.position);
     placeMoon(base.moon, cam, t < A(207) ? 0.2 : 0.29, t < A(207) ? -0.3 : 0.2);
